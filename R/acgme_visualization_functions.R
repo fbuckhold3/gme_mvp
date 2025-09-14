@@ -1,315 +1,306 @@
 # ============================================================================
-# R/mod_acgme_program_overview.R
-# ACGME Program Overview Module for gmed-mvp
+# R/acgme_visualization_functions.R
+# ACGME visualization functions for gmed-mvp
 # ============================================================================
 
-#' ACGME Program Overview Module UI
+#' Create Dynamic Spider Plot
 #'
-#' Program-level analysis that adapts to any specialty's milestone structure
+#' Creates spider plot using the dynamically discovered competency structure
 #'
-#' @param id Module namespace ID
+#' @param processed_data Output from transform_acgme_data_dynamic()
+#' @param period_filter Selected period
+#' @param selected_years Vector of years to include
+#' @param show_national Whether to show national medians (if available)
+#' @return Plotly spider plot
 #' @export
-mod_acgme_program_overview_ui <- function(id) {
-  ns <- NS(id)
+create_dynamic_spider_plot <- function(processed_data, period_filter = "Total", 
+                                       selected_years = NULL, show_national = FALSE) {
   
-  tagList(
-    # Controls row
-    fluidRow(
-      column(3,
-             selectInput(ns("period_select"), "Period:",
-                         choices = c("Total"), selected = "Total")
-      ),
-      column(3,
-             selectInput(ns("year_filter"), "Resident Year:",
-                         choices = list("All Years" = "all"),
-                         selected = "all")
-      ),
-      column(3,
-             radioButtons(ns("view_type"), "View:",
-                          choices = list("Summary" = "summary", "Spider Plot" = "spider", 
-                                         "Heat Map" = "heatmap"),
-                          selected = "summary", inline = TRUE)
-      ),
-      column(3,
-             uiOutput(ns("specialty_info"))
+  library(plotly)
+  library(dplyr)
+  library(stringr)
+  
+  milestone_data <- processed_data$milestone_data_long
+  structure_info <- processed_data$structure_info
+  
+  # Use all available years if none specified
+  if (is.null(selected_years)) {
+    selected_years <- as.character(structure_info$resident_years)
+  }
+  
+  # Filter data by period and years
+  filtered_data <- milestone_data
+  if (period_filter != "Total") {
+    filtered_data <- filtered_data %>% 
+      filter(prog_mile_period == period_filter)
+  }
+  filtered_data <- filtered_data %>%
+    filter(Level %in% selected_years)
+  
+  # Calculate competency averages by resident year
+  competency_averages <- filtered_data %>%
+    group_by(Level, competency_code, competency_name) %>%
+    summarise(
+      median_score = median(score, na.rm = TRUE),
+      mean_score = mean(score, na.rm = TRUE),
+      n_residents = n_distinct(record_id),
+      .groups = "drop"
+    ) %>%
+    # Create display-friendly competency names
+    mutate(
+      display_name = case_when(
+        competency_code == "PC" ~ "Patient Care",
+        competency_code == "MK" ~ "Medical Knowledge", 
+        competency_code == "SBP" ~ "Systems-Based Practice",
+        competency_code == "PBLI" ~ "Practice-Based Learning",
+        competency_code == "PROF" ~ "Professionalism",
+        competency_code == "ICS" ~ "Communication Skills",
+        TRUE ~ competency_name
       )
-    ),
+    )
+  
+  # Create spider plot
+  fig <- plot_ly(type = 'scatterpolar', mode = 'lines+markers')
+  
+  # Define colors for each year
+  year_colors <- c("#e74c3c", "#f39c12", "#27ae60", "#9b59b6", "#3498db", "#1abc9c")
+  names(year_colors) <- sort(unique(filtered_data$Level))
+  
+  # Add trace for each resident year
+  for (year in selected_years) {
+    year_data <- competency_averages %>% filter(Level == year)
     
-    # Dynamic content based on view type
-    uiOutput(ns("main_content"))
-  )
-}
-
-#' ACGME Program Overview Module Server
-#'
-#' Server logic that adapts to discovered milestone structure
-#'
-#' @param id Module namespace ID  
-#' @param processed_data Reactive containing output from transform_acgme_data_dynamic()
-#' @export
-mod_acgme_program_overview_server <- function(id, processed_data) {
-  moduleServer(id, function(input, output, session) {
-    
-    # Update choices when data changes
-    observe({
-      req(processed_data())
-      
-      # Update period choices
-      periods <- c("Total", processed_data()$periods)
-      updateSelectInput(session, "period_select", choices = periods)
-      
-      # Update year choices based on discovered resident years
-      years <- processed_data()$resident_years
-      year_choices <- c("All Years" = "all")
-      for (year in years) {
-        year_choices[[paste("PGY", year)]] <- as.character(year)
-      }
-      updateSelectInput(session, "year_filter", choices = year_choices)
-    })
-    
-    # Display specialty information
-    output$specialty_info <- renderUI({
-      req(processed_data())
-      
-      structure_info <- processed_data()$structure_info
-      
-      div(style = "margin-top: 25px; font-size: 0.9em;",
-          tags$strong("Specialty Structure:"), tags$br(),
-          paste(nrow(structure_info$competency_counts), "competencies"), tags$br(),
-          paste(structure_info$total_milestones, "total milestones"), tags$br(),
-          paste(length(processed_data()$resident_years), "training years")
-      )
-    })
-    
-    # Filter data based on selections
-    filtered_data <- reactive({
-      req(processed_data(), input$period_select, input$year_filter)
-      
-      milestone_data <- processed_data()$milestone_data_long
-      
-      if (input$period_select != "Total") {
-        milestone_data <- milestone_data %>% 
-          filter(prog_mile_period == input$period_select)
-      }
-      
-      if (input$year_filter != "all") {
-        milestone_data <- milestone_data %>% 
-          filter(Level == input$year_filter)
-      }
-      
-      # Return updated processed_data structure
-      updated_data <- processed_data()
-      updated_data$milestone_data_long <- milestone_data
-      return(updated_data)
-    })
-    
-    # Dynamic UI content
-    output$main_content <- renderUI({
-      req(input$view_type)
-      
-      if (input$view_type == "summary") {
-        acgme_summary_content_ui(session$ns)
-      } else if (input$view_type == "spider") {
-        acgme_spider_content_ui(session$ns)
-      } else if (input$view_type == "heatmap") {
-        acgme_heatmap_content_ui(session$ns)
-      }
-    })
-    
-    # Summary statistics
-    summary_stats <- reactive({
-      req(filtered_data())
-      create_dynamic_summary_stats(filtered_data(), input$period_select)
-    })
-    
-    # Performance tables
-    performance_tables <- reactive({
-      req(filtered_data())
-      create_dynamic_performance_tables(filtered_data(), input$period_select)
-    })
-    
-    # Summary view outputs
-    output$total_residents <- renderText({
-      req(summary_stats())
-      as.character(summary_stats()$total_residents)
-    })
-    
-    output$avg_performance <- renderText({
-      req(summary_stats())
-      as.character(summary_stats()$overall_median)
-    })
-    
-    output$below_benchmark <- renderText({
-      req(summary_stats())
-      paste0(summary_stats()$below_benchmark_pct, "%")
-    })
-    
-    output$above_target <- renderText({
-      req(summary_stats())
-      paste0(summary_stats()$above_target_pct, "%")
-    })
-    
-    output$total_competencies <- renderText({
-      req(summary_stats())
-      as.character(summary_stats()$total_competencies)
-    })
-    
-    output$total_milestones <- renderText({
-      req(summary_stats())
-      as.character(summary_stats()$total_milestones)
-    })
-    
-    # Performance tables
-    output$strengths_table <- DT::renderDataTable({
-      req(performance_tables())
-      performance_tables()$strengths
-    }, options = list(dom = 't', pageLength = 10, scrollX = TRUE))
-    
-    output$improvements_table <- DT::renderDataTable({
-      req(performance_tables())
-      performance_tables()$improvements
-    }, options = list(dom = 't', pageLength = 10, scrollX = TRUE))
-    
-    output$subcompetency_table <- DT::renderDataTable({
-      req(performance_tables())
-      performance_tables()$subcompetency_details
-    }, options = list(pageLength = 15, scrollX = TRUE))
-    
-    # Competency breakdown table
-    output$competency_breakdown <- DT::renderDataTable({
-      req(summary_stats())
-      summary_stats()$competency_breakdown %>%
-        rename(
-          `Competency Code` = competency_code,
-          `Competency Name` = competency_name,
-          `Sub-competencies` = n_subcompetencies,
-          `Range` = subcompetency_range
+    if (nrow(year_data) > 0) {
+      fig <- fig %>%
+        add_trace(
+          r = year_data$median_score,
+          theta = year_data$display_name,
+          name = paste("PGY", year),
+          line = list(color = year_colors[[year]], width = 3),
+          marker = list(size = 8, color = year_colors[[year]]),
+          text = paste("PGY", year, "<br>",
+                       year_data$display_name, "<br>",
+                       "Median:", round(year_data$median_score, 1), "<br>",
+                       "Residents:", year_data$n_residents),
+          hovertemplate = "%{text}<extra></extra>"
         )
-    }, options = list(dom = 't', pageLength = 10))
-    
-    # Spider plot
-    output$program_spider <- renderPlotly({
-      req(processed_data())
-      create_dynamic_spider_plot(
-        processed_data(), 
-        period_filter = input$period_select,
-        selected_years = if(input$year_filter == "all") {
-          as.character(processed_data()$resident_years)
-        } else {
-          input$year_filter
-        }
-      )
-    })
-    
-    # Heat map with metric selector
-    output$competency_heatmap <- renderPlotly({
-      req(processed_data())
-      metric <- if(exists("input$heatmap_metric") && !is.null(input$heatmap_metric)) {
-        input$heatmap_metric
-      } else {
-        "median"
-      }
-      create_dynamic_heatmap(processed_data(), input$period_select, metric)
-    })
-  })
+    }
+  }
+  
+  # Configure layout
+  fig <- fig %>%
+    layout(
+      polar = list(
+        radialaxis = list(
+          visible = TRUE,
+          range = c(1, 9),
+          tickmode = 'array',
+          tickvals = c(1, 3, 5, 7, 9),
+          ticktext = c('1', '3', '5', '7', '9'),
+          tickfont = list(size = 12),
+          gridcolor = 'rgba(0,0,0,0.1)'
+        ),
+        angularaxis = list(
+          tickfont = list(size = 12),
+          rotation = 90,
+          direction = "clockwise"
+        )
+      ),
+      title = list(
+        text = paste("Program Performance Spider Plot -", period_filter),
+        font = list(size = 16)
+      ),
+      showlegend = TRUE,
+      legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.15),
+      margin = list(t = 80, b = 120, l = 80, r = 80)
+    )
+  
+  return(fig)
 }
 
-# ============================================================================
-# HELPER UI FUNCTIONS
-# ============================================================================
-
-#' Summary Content UI Helper
-acgme_summary_content_ui <- function(ns) {
-  fluidRow(
-    # Key metrics cards
-    column(2, div(class = "gmed-stat-card",
-                  h3(textOutput(ns("total_residents")), class = "text-primary"),
-                  p("Total Residents"))),
-    column(2, div(class = "gmed-stat-card", 
-                  h3(textOutput(ns("avg_performance")), class = "text-success"),
-                  p("Median Score"))),
-    column(2, div(class = "gmed-stat-card",
-                  h3(textOutput(ns("below_benchmark")), class = "text-warning"), 
-                  p("Below Benchmark"))),
-    column(2, div(class = "gmed-stat-card",
-                  h3(textOutput(ns("above_target")), class = "text-info"),
-                  p("Above Target"))),
-    column(2, div(class = "gmed-stat-card",
-                  h3(textOutput(ns("total_competencies")), class = "text-secondary"),
-                  p("Competencies"))),
-    column(2, div(class = "gmed-stat-card",
-                  h3(textOutput(ns("total_milestones")), class = "text-secondary"),
-                  p("Milestones"))),
-    
-    # Competency structure breakdown
-    column(6, div(class = "gmed-card mt-3",
-                  div(class = "gmed-card-header", h5("📊 Competency Structure")),
-                  DT::dataTableOutput(ns("competency_breakdown")))),
-    
-    # Performance tables
-    column(6, div(class = "gmed-card mt-3",
-                  div(class = "gmed-card-header", h5("🎯 Strengths & Improvements")),
-                  tags$h6("Strengths", class = "text-success"),
-                  DT::dataTableOutput(ns("strengths_table")),
-                  tags$h6("Improvement Areas", class = "text-warning mt-3"),
-                  DT::dataTableOutput(ns("improvements_table")))),
-    
-    # Sub-competency details
-    column(12, div(class = "gmed-card mt-3",
-                   div(class = "gmed-card-header", h5("📋 Sub-competency Details")),
-                   DT::dataTableOutput(ns("subcompetency_table"))))
-  )
+#' Create Dynamic Performance Tables
+#'
+#' Creates performance tables using the discovered competency structure
+#'
+#' @param processed_data Output from transform_acgme_data_dynamic()
+#' @param period_filter Selected period
+#' @return List with strengths and improvement tables
+#' @export
+create_dynamic_performance_tables <- function(processed_data, period_filter = "Total") {
+  
+  library(dplyr)
+  
+  milestone_data <- processed_data$milestone_data_long
+  
+  # Filter by period
+  if (period_filter != "Total") {
+    milestone_data <- milestone_data %>% 
+      filter(prog_mile_period == period_filter)
+  }
+  
+  # Calculate competency-level statistics
+  competency_stats <- milestone_data %>%
+    group_by(competency_code, competency_name) %>%
+    summarise(
+      median_score = median(score, na.rm = TRUE),
+      mean_score = mean(score, na.rm = TRUE),
+      n_evaluations = n(),
+      n_residents = n_distinct(record_id),
+      below_4 = sum(score < 4, na.rm = TRUE),
+      above_6 = sum(score >= 6, na.rm = TRUE),
+      below_4_pct = round(mean(score < 4, na.rm = TRUE) * 100, 1),
+      above_6_pct = round(mean(score >= 6, na.rm = TRUE) * 100, 1),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(median_score))
+  
+  # Create strengths table (median >= 5.5)
+  strengths <- competency_stats %>%
+    filter(median_score >= 5.5) %>%
+    select(competency_name, median_score, above_6_pct, n_residents) %>%
+    rename(
+      Competency = competency_name,
+      `Median Score` = median_score,
+      `Above Target %` = above_6_pct,
+      `Residents` = n_residents
+    ) %>%
+    mutate(`Median Score` = round(`Median Score`, 1))
+  
+  # Create improvement areas table (median < 4.5)
+  improvements <- competency_stats %>%
+    filter(median_score < 4.5) %>%
+    select(competency_name, median_score, below_4_pct, n_residents) %>%
+    rename(
+      Competency = competency_name,
+      `Median Score` = median_score,
+      `Below Benchmark %` = below_4_pct,
+      `Residents` = n_residents
+    ) %>%
+    mutate(`Median Score` = round(`Median Score`, 1))
+  
+  # Sub-competency details
+  subcompetency_details <- milestone_data %>%
+    group_by(competency_name, milestone_id, sub_competency_title) %>%
+    summarise(
+      median_score = median(score, na.rm = TRUE),
+      n_evaluations = n(),
+      .groups = "drop"
+    ) %>%
+    arrange(competency_name, milestone_id) %>%
+    mutate(median_score = round(median_score, 1)) %>%
+    rename(
+      Competency = competency_name,
+      `Sub-competency` = milestone_id,
+      Description = sub_competency_title,
+      `Median Score` = median_score,
+      `Evaluations` = n_evaluations
+    )
+  
+  return(list(
+    strengths = strengths,
+    improvements = improvements,
+    all_stats = competency_stats,
+    subcompetency_details = subcompetency_details
+  ))
 }
 
-#' Spider Plot Content UI Helper
-acgme_spider_content_ui <- function(ns) {
-  fluidRow(
-    column(9, 
-           div(class = "gmed-card",
-               div(class = "gmed-card-header", h5("Program Performance Spider Plot")),
-               plotlyOutput(ns("program_spider"), height = "500px"))),
-    column(3,
-           div(class = "gmed-card",
-               div(class = "gmed-card-header", h5("Legend & Info")),
-               tags$div(
-                 tags$p("Year-based comparison showing median scores by competency"),
-                 tags$hr(),
-                 tags$h6("Scale:"),
-                 tags$p("1-3: Developing", style = "margin: 2px 0;"),
-                 tags$p("4-5: Competent", style = "margin: 2px 0;"), 
-                 tags$p("6-7: Proficient", style = "margin: 2px 0;"),
-                 tags$p("8-9: Expert", style = "margin: 2px 0;")
-               )))
-  )
-}
-
-#' Heat Map Content UI Helper
-acgme_heatmap_content_ui <- function(ns) {
-  fluidRow(
-    column(9,
-           div(class = "gmed-card",
-               div(class = "gmed-card-header", h5("Milestone Performance Heat Map")),
-               plotlyOutput(ns("competency_heatmap"), height = "600px"))),
-    column(3,
-           div(class = "gmed-card",
-               div(class = "gmed-card-header", h5("Heat Map Options")),
-               radioButtons(ns("heatmap_metric"), "Display Metric:",
-                            choices = list(
-                              "Median Score" = "median",
-                              "Mean Score" = "mean",
-                              "Below Benchmark %" = "below_benchmark",
-                              "Above Target %" = "above_target"
-                            ),
-                            selected = "median"),
-               tags$hr(),
-               tags$h6("Color Legend:"),
-               tags$div(
-                 style = "background: linear-gradient(to right, #d32f2f, #fff, #2e7d32); height: 20px; border-radius: 4px;"
-               ),
-               div(class = "d-flex justify-content-between mt-1",
-                   tags$small("Low"),
-                   tags$small("Average"), 
-                   tags$small("High")
-               )))
-  )
+#' Create Dynamic Heat Map
+#'
+#' Creates heat map using the discovered milestone structure
+#'
+#' @param processed_data Output from transform_acgme_data_dynamic()
+#' @param period_filter Selected period
+#' @param metric Metric to display ("median", "mean", "below_benchmark", "above_target")
+#' @return Plotly heat map
+#' @export
+create_dynamic_heatmap <- function(processed_data, period_filter = "Total", metric = "median") {
+  
+  library(plotly)
+  library(dplyr)
+  library(tidyr)
+  library(stringr)
+  
+  milestone_data <- processed_data$milestone_data_long
+  
+  # Filter by period
+  if (period_filter != "Total") {
+    milestone_data <- milestone_data %>% 
+      filter(prog_mile_period == period_filter)
+  }
+  
+  # Calculate metrics by milestone and year
+  heatmap_data <- milestone_data %>%
+    group_by(Level, competency_name, milestone_id, sub_competency_title) %>%
+    summarise(
+      median_score = median(score, na.rm = TRUE),
+      mean_score = mean(score, na.rm = TRUE),
+      below_benchmark = mean(score < 4, na.rm = TRUE) * 100,
+      above_target = mean(score >= 6, na.rm = TRUE) * 100,
+      n_evaluations = n(),
+      .groups = "drop"
+    ) %>%
+    # Create display names
+    mutate(
+      milestone_display = paste0(competency_name, " - ", milestone_id),
+      year_display = paste0("PGY-", Level)
+    )
+  
+  # Select the metric to display
+  metric_col <- paste0(metric, "_score")
+  if (!metric_col %in% names(heatmap_data)) {
+    metric_col <- metric
+  }
+  
+  # Create matrix for heatmap
+  heatmap_matrix <- heatmap_data %>%
+    select(milestone_display, year_display, all_of(metric_col)) %>%
+    pivot_wider(
+      names_from = year_display, 
+      values_from = all_of(metric_col), 
+      values_fill = NA
+    ) %>%
+    column_to_rownames("milestone_display") %>%
+    as.matrix()
+  
+  # Determine color scale based on metric
+  if (metric %in% c("median", "mean")) {
+    color_scale <- list(
+      c(0, "#d32f2f"),     # Red for low scores
+      c(0.4, "#fff3e0"),   # Light orange
+      c(0.6, "#e8f5e8"),   # Light green  
+      c(1, "#2e7d32")      # Dark green for high scores
+    )
+    zmin <- 1
+    zmax <- 9
+  } else {
+    color_scale <- list(
+      c(0, "#2e7d32"),     # Green for low percentages (good)
+      c(0.5, "#fff3e0"),   # Light orange
+      c(1, "#d32f2f")      # Red for high percentages (concerning)
+    )
+    zmin <- 0
+    zmax <- 100
+  }
+  
+  # Create plotly heatmap
+  fig <- plot_ly(
+    z = heatmap_matrix,
+    x = colnames(heatmap_matrix),
+    y = rownames(heatmap_matrix),
+    type = "heatmap",
+    colorscale = color_scale,
+    zmin = zmin, zmax = zmax,
+    hoverongaps = FALSE,
+    text = round(heatmap_matrix, 1),
+    texttemplate = "%{text}",
+    textfont = list(size = 10, color = "black")
+  ) %>%
+    layout(
+      title = paste("Milestone Performance Heat Map -", str_to_title(gsub("_", " ", metric))),
+      xaxis = list(title = "Resident Year", tickfont = list(size = 12)),
+      yaxis = list(title = "Competency - Milestone", tickfont = list(size = 9)),
+      margin = list(l = 300, r = 50, t = 80, b = 50)
+    )
+  
+  return(fig)
 }
