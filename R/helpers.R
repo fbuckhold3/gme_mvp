@@ -378,3 +378,152 @@ create_individual_detail_plot <- function(individual_data, selected_category) {
       title = paste0(selected_category, " Sub-Competency Progression")
     )
 }
+
+# ============================================================================
+# IMSLU MILESTONE DATA PROCESSING FUNCTION
+# Add this to your helpers.R file or create as a separate function
+# ============================================================================
+
+#' Process IMSLU Milestone Data from Uploaded CSV Files
+#'
+#' Processes the actual IMSLU milestone data structure from uploaded CSV files
+#' and creates both resident lookup and milestone data in the format expected
+#' by the GME visualization modules.
+#'
+#' @param file_paths Vector of file paths to uploaded CSV files
+#' @return List containing residents data frame and milestone data frame
+#' @export
+import_and_process_milestones_with_names <- function(file_paths) {
+  
+  library(dplyr)
+  library(tidyr)
+  library(stringr)
+  
+  # Read and combine all CSV files
+  combined_data <- do.call(rbind, lapply(file_paths, function(x) {
+    tryCatch({
+      df <- read.csv(x, stringsAsFactors = FALSE)
+      
+      # Clean column names - handle spaces and periods
+      names(df) <- gsub("\\s+", ".", names(df))
+      names(df) <- gsub("\\.+", ".", names(df))
+      
+      # Verify required columns exist
+      required_cols <- c("Schedule.Window.Description", "Resident.ID", "First.Name", 
+                         "Last.Name", "Resident.Year", "Question.Key", "Int.Response.Value")
+      
+      missing_cols <- setdiff(required_cols, names(df))
+      if (length(missing_cols) > 0) {
+        warning("Missing columns in file ", basename(x), ": ", paste(missing_cols, collapse = ", "))
+        # Try alternative column names
+        if ("First.Name" %in% missing_cols && "First Name" %in% names(df)) {
+          df$First.Name <- df$`First Name`
+        }
+        if ("Last.Name" %in% missing_cols && "Last Name" %in% names(df)) {
+          df$Last.Name <- df$`Last Name`
+        }
+        # Add other column name alternatives as needed
+      }
+      
+      return(df)
+    }, error = function(e) {
+      message("Error reading file ", basename(x), ": ", e$message)
+      return(NULL)
+    })
+  }))
+  
+  # Remove any NULL entries from failed reads
+  combined_data <- combined_data[!sapply(combined_data, is.null)]
+  
+  if (nrow(combined_data) == 0) {
+    stop("No valid data found in the uploaded files")
+  }
+  
+  # Create residents lookup table
+  residents <- combined_data %>%
+    select(Resident.ID, First.Name, Last.Name, Resident.Year) %>%
+    distinct() %>%
+    mutate(
+      name = paste(First.Name, Last.Name),
+      record_id = as.character(Resident.ID),
+      Level = as.character(Resident.Year)
+    ) %>%
+    select(record_id, name, Level) %>%
+    arrange(name)
+  
+  # Process milestone data
+  milestone_data <- combined_data %>%
+    # Filter out missing values and followup questions
+    filter(
+      !is.na(Int.Response.Value),
+      Int.Response.Value > 0,
+      !grepl("_followup", Question.Key, ignore.case = TRUE)
+    ) %>%
+    # Clean and standardize milestone question keys
+    mutate(
+      # Convert question keys to standard format (PC1, MK2, etc.)
+      Question.Key = case_when(
+        grepl("[Cc]omp[1-9]_PC_Q\\d+", Question.Key) ~ 
+          gsub("[Cc]omp[1-9]_PC_Q(\\d+)", "PC\\1", Question.Key),
+        grepl("[Cc]omp[1-9]_MK_Q\\d+", Question.Key) ~ 
+          gsub("[Cc]omp[1-9]_MK_Q(\\d+)", "MK\\1", Question.Key),
+        grepl("[Cc]omp[1-9]_ICS_Q\\d+", Question.Key) ~ 
+          gsub("[Cc]omp[1-9]_ICS_Q(\\d+)", "ICS\\1", Question.Key),
+        grepl("[Cc]omp[1-9]_SBP_Q\\d+", Question.Key) ~ 
+          gsub("[Cc]omp[1-9]_SBP_Q(\\d+)", "SBP\\1", Question.Key),
+        grepl("[Cc]omp[1-9]_(PROF|PR)_Q\\d+", Question.Key) ~ 
+          gsub("[Cc]omp[1-9]_(PROF|PR)_Q(\\d+)", "PROF\\2", Question.Key),
+        grepl("[Cc]omp[1-9]_(PBL|PBLI)_Q\\d+", Question.Key) ~ 
+          gsub("[Cc]omp[1-9]_(PBL|PBLI)_Q(\\d+)", "PBL\\2", Question.Key),
+        TRUE ~ Question.Key
+      ),
+      # Standardize period names
+      period = case_when(
+        grepl("Mid", Schedule.Window.Description, ignore.case = TRUE) ~ "Mid-Year",
+        grepl("End", Schedule.Window.Description, ignore.case = TRUE) ~ "End-Year",
+        TRUE ~ Schedule.Window.Description
+      ),
+      # Create record_id and Level for consistency
+      record_id = as.character(Resident.ID),
+      Level = as.character(Resident.Year)
+    ) %>%
+    # Select and rename columns
+    select(record_id, Level, period, Question.Key, Int.Response.Value) %>%
+    # Average multiple responses for same resident/period/question
+    group_by(record_id, Level, period, Question.Key) %>%
+    summarise(score = mean(Int.Response.Value, na.rm = TRUE), .groups = "drop") %>%
+    # Pivot to wide format with milestones as columns
+    pivot_wider(
+      names_from = Question.Key,
+      values_from = score,
+      values_fill = NA
+    ) %>%
+    arrange(record_id, Level, period)
+  
+  # Verify that we have milestone columns
+  milestone_cols <- grep("^(PC|MK|SBP|PBL|PROF|ICS)", names(milestone_data), value = TRUE)
+  if (length(milestone_cols) == 0) {
+    stop("No milestone columns found in the processed data")
+  }
+  
+  # Create summary information
+  competencies <- unique(substr(milestone_cols, 1, 2))
+  n_milestones <- length(milestone_cols)
+  periods <- unique(milestone_data$period)
+  
+  message("Successfully processed IMSLU data:")
+  message("- ", nrow(residents), " residents")
+  message("- ", length(competencies), " competencies: ", paste(competencies, collapse = ", "))
+  message("- ", n_milestones, " milestones")
+  message("- ", length(periods), " periods: ", paste(periods, collapse = ", "))
+  
+  return(list(
+    residents = residents,
+    milestone_data = milestone_data,
+    milestone_columns = milestone_cols,
+    competencies = competencies,
+    periods = periods,
+    n_residents = nrow(residents),
+    n_milestones = n_milestones
+  ))
+}
