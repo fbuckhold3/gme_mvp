@@ -20,111 +20,335 @@ get_competency_level <- function(score) {
   )
 }
 
-#' Enhanced import and processing function
-import_and_process_milestones <- function(file_paths) {
-  # Read and combine all files
+# =============================================================================
+# GENERIC ACGME MILESTONE DATA PROCESSING FUNCTIONS
+# Works with any specialty's milestone data structure
+# =============================================================================
+
+#' Import and Process Generic ACGME Milestone Data
+#'
+#' Processes ACGME milestone data from uploaded CSV files with flexible
+#' column name handling for any specialty program.
+#'
+#' @param file_paths Vector of file paths to uploaded CSV files
+#' @return List containing processed milestone data
+#' @export
+import_and_process_milestones_generic <- function(file_paths) {
+  
+  library(dplyr)
+  library(tidyr)
+  library(stringr)
+  
+  cat("Processing", length(file_paths), "milestone CSV files...\n")
+  
+  # Read and combine all files with error handling
   combined_data <- do.call(rbind, lapply(file_paths, function(x) {
     tryCatch({
+      cat("Reading:", basename(x), "\n")
       df <- read.csv(x, stringsAsFactors = FALSE)
       
-      # Clean column names
-      colnames(df) <- gsub("\\s+", ".", colnames(df))
+      # Clean column names - handle spaces, periods, and special characters
+      names(df) <- gsub("\\s+", ".", names(df))
+      names(df) <- gsub("\\.+", ".", names(df))
+      names(df) <- gsub("\\.$", "", names(df))
       
-      # Verify required columns exist
-      required_cols <- c("Schedule.Window.Description", "Resident.ID",
-                         "Resident.Year", "Question.Key", 
-                         "Int.Response.Value")
-      
-      missing_cols <- setdiff(required_cols, names(df))
-      if (length(missing_cols) > 0) {
-        stop("Missing required columns: ", paste(missing_cols, collapse = ", "))
-      }
-      
-      # Select needed columns, add optional ones if available
-      available_cols <- intersect(c(required_cols, "Program.Name", "Specialty.Name", 
-                                    "Question.Text", "Response.Text"), names(df))
-      df <- df[, available_cols]
+      cat("  Columns found:", ncol(df), "\n")
+      cat("  Rows found:", nrow(df), "\n")
       
       return(df)
     }, error = function(e) {
-      message("Error reading file ", x, ": ", e$message)
+      cat("  ERROR reading file:", basename(x), "-", e$message, "\n")
       return(NULL)
     })
   }))
   
-  # Remove any NULL entries from failed reads
-  combined_data <- combined_data[!sapply(combined_data, is.null)]
+  # Remove NULL entries and combine data
+  if (is.list(combined_data)) {
+    combined_data <- do.call(rbind, combined_data[!sapply(combined_data, is.null)])
+  }
   
-  if (length(combined_data) == 0 || nrow(combined_data) == 0) {
+  if (is.null(combined_data) || nrow(combined_data) == 0) {
     stop("No valid data found in the uploaded files")
   }
   
-  # Create question text index if available
-  if ("Question.Text" %in% names(combined_data)) {
-    question_index <<- combined_data %>%
-      filter(!is.na(Question.Key), !is.na(Question.Text)) %>%
-      filter(!grepl("_followup", Question.Key)) %>%
-      select(Question.Key, Question.Text) %>%
-      distinct() %>%
-      mutate(
-        Milestone_Key = case_when(
-          grepl("[Cc]omp[1-9]_PC_Q\\d+", Question.Key) ~ gsub("[Cc]omp[1-9]_PC_Q(\\d+)", "PC\\1", Question.Key),
-          grepl("[Cc]omp[1-9]_MK_Q\\d+", Question.Key) ~ gsub("[Cc]omp[1-9]_MK_Q(\\d+)", "MK\\1", Question.Key),
-          grepl("[Cc]omp[1-9]_ICS_Q\\d+", Question.Key) ~ gsub("[Cc]omp[1-9]_ICS_Q(\\d+)", "ICS\\1", Question.Key),
-          grepl("[Cc]omp[1-9]_SBP_Q\\d+", Question.Key) ~ gsub("[Cc]omp[1-9]_SBP_Q(\\d+)", "SBP\\1", Question.Key),
-          grepl("[Cc]omp[1-9]_(PROF|PR)_Q\\d+", Question.Key) ~ gsub("[Cc]omp[1-9]_(PROF|PR)_Q(\\d+)", "PROF\\2", Question.Key),
-          grepl("[Cc]omp[1-9]_(PBL|PBLI)_Q\\d+", Question.Key) ~ gsub("[Cc]omp[1-9]_(PBL|PBLI)_Q(\\d+)", "PBL\\2", Question.Key),
-          TRUE ~ Question.Key
-        )
-      ) %>%
-      select(Milestone_Key, Question.Text) %>%
-      distinct()
-  } else {
-    question_index <<- data.frame(Milestone_Key = character(0), Question.Text = character(0))
+  cat("Combined data:", nrow(combined_data), "rows\n")
+  
+  # Flexible column identification
+  col_names <- names(combined_data)
+  
+  # Find key columns with flexible naming
+  period_col <- find_column(col_names, c("Schedule.Window.Description", "Period", "Assessment.Period"))
+  resident_id_col <- find_column(col_names, c("Resident.ID", "ID", "ResidentID", "Record.ID"))
+  year_col <- find_column(col_names, c("Resident.Year", "Year", "Level", "Training.Year"))
+  question_col <- find_column(col_names, c("Question.Key", "QuestionKey", "Milestone.Key", "Question.ID"))
+  score_col <- find_column(col_names, c("Int.Response.Value", "Score", "Response.Value", "Value"))
+  
+  # Optional name columns
+  first_name_col <- find_column(col_names, c("First.Name", "FirstName", "First"), required = FALSE)
+  last_name_col <- find_column(col_names, c("Last.Name", "LastName", "Last"), required = FALSE)
+  
+  # Verify required columns exist
+  required_cols <- list(
+    Period = period_col,
+    Resident_ID = resident_id_col,
+    Year = year_col,
+    Question = question_col,
+    Score = score_col
+  )
+  
+  missing <- names(required_cols)[sapply(required_cols, is.null)]
+  if (length(missing) > 0) {
+    stop("Could not identify required columns: ", paste(missing, collapse = ", "),
+         "\nAvailable columns: ", paste(col_names, collapse = ", "))
   }
   
-  # Process the data
-  processed_data <- combined_data %>%
+  # Create residents lookup table
+  residents_cols <- c(resident_id_col, year_col)
+  if (!is.null(first_name_col)) residents_cols <- c(residents_cols, first_name_col)
+  if (!is.null(last_name_col)) residents_cols <- c(residents_cols, last_name_col)
+  
+  residents <- combined_data %>%
+    select(all_of(residents_cols)) %>%
+    distinct() %>%
+    rename(
+      record_id = !!sym(resident_id_col),
+      Level = !!sym(year_col)
+    )
+  
+  # Add name column if name columns exist
+  if (!is.null(first_name_col) && !is.null(last_name_col)) {
+    residents <- residents %>%
+      rename(
+        First.Name = !!sym(first_name_col),
+        Last.Name = !!sym(last_name_col)
+      ) %>%
+      mutate(name = paste(First.Name, Last.Name))
+  } else {
+    residents <- residents %>%
+      mutate(name = paste("Resident", record_id))
+  }
+  
+  # Standardize Level format
+  residents <- residents %>%
     mutate(
-      Resident.Year = as.character(Resident.Year),
-      Int.Response.Value = as.numeric(Int.Response.Value)
-    ) %>%
-    filter(!is.na(Int.Response.Value)) %>%  # Remove NA values
-    filter(!grepl("_followup", Question.Key)) %>%
-    mutate(
-      # Transform Question.Key to individual milestone codes
-      Question.Key = case_when(
-        grepl("[Cc]omp[1-9]_PC_Q\\d+", Question.Key) ~ gsub("[Cc]omp[1-9]_PC_Q(\\d+)", "PC\\1", Question.Key),
-        grepl("[Cc]omp[1-9]_MK_Q\\d+", Question.Key) ~ gsub("[Cc]omp[1-9]_MK_Q(\\d+)", "MK\\1", Question.Key),
-        grepl("[Cc]omp[1-9]_ICS_Q\\d+", Question.Key) ~ gsub("[Cc]omp[1-9]_ICS_Q(\\d+)", "ICS\\1", Question.Key),
-        grepl("[Cc]omp[1-9]_SBP_Q\\d+", Question.Key) ~ gsub("[Cc]omp[1-9]_SBP_Q(\\d+)", "SBP\\1", Question.Key),
-        grepl("[Cc]omp[1-9]_(PROF|PR)_Q\\d+", Question.Key) ~ gsub("[Cc]omp[1-9]_(PROF|PR)_Q(\\d+)", "PROF\\2", Question.Key),
-        grepl("[Cc]omp[1-9]_(PBL|PBLI)_Q\\d+", Question.Key) ~ gsub("[Cc]omp[1-9]_(PBL|PBLI)_Q(\\d+)", "PBL\\2", Question.Key),
-        TRUE ~ Question.Key
+      record_id = as.character(record_id),
+      Level = case_when(
+        grepl("PGY", Level, ignore.case = TRUE) ~ as.character(Level),
+        is.numeric(as.numeric(Level)) ~ paste0("PGY-", Level),
+        TRUE ~ as.character(Level)
       )
     ) %>%
-    rename(period = Schedule.Window.Description) %>%
-    select(any_of(c("Resident.ID", "Resident.Year", "period", "Question.Key", 
-                    "Int.Response.Value", "Program.Name", "Specialty.Name"))) %>%
-    group_by(across(c(-Int.Response.Value))) %>%
-    summarise(Int.Response.Value = mean(Int.Response.Value, na.rm = TRUE), .groups = "drop") %>%
+    select(record_id, name, Level) %>%
+    arrange(name)
+  
+  cat("Found", nrow(residents), "unique residents\n")
+  
+  # Process milestone data
+  milestone_data <- combined_data %>%
+    # Select and rename key columns
+    select(
+      record_id = !!sym(resident_id_col),
+      period = !!sym(period_col),
+      Level = !!sym(year_col),
+      Question.Key = !!sym(question_col),
+      Score = !!sym(score_col)
+    ) %>%
+    # Filter valid data
+    filter(
+      !is.na(Score),
+      Score > 0,
+      Score <= 9,  # Standard milestone scale
+      !grepl("_followup", Question.Key, ignore.case = TRUE)
+    ) %>%
+    # Convert data types
+    mutate(
+      record_id = as.character(record_id),
+      Score = as.numeric(Score),
+      Level = case_when(
+        grepl("PGY", Level, ignore.case = TRUE) ~ as.character(Level),
+        is.numeric(as.numeric(Level)) ~ paste0("PGY-", Level),
+        TRUE ~ as.character(Level)
+      )
+    ) %>%
+    # Standardize milestone question keys
+    mutate(
+      Question.Key = standardize_milestone_keys(Question.Key)
+    ) %>%
+    # Keep only recognized milestone questions
+    filter(grepl("^(PC|MK|ICS|SBP|PROF|PBL|PBLI)\\d+", Question.Key)) %>%
+    # Aggregate multiple responses
+    group_by(record_id, Level, period, Question.Key) %>%
+    summarise(Score = mean(Score, na.rm = TRUE), .groups = "drop") %>%
+    # Pivot to wide format
     pivot_wider(
       names_from = Question.Key,
-      values_from = Int.Response.Value
+      values_from = Score
     ) %>%
-    arrange(Resident.ID, Resident.Year)
+    arrange(record_id, period)
   
-  # Verify that we have milestone columns
-  milestone_cols <- grep("^(PC|MK|SBP|PBL|PROF|ICS)", names(processed_data), value = TRUE)
+  # Get milestone columns
+  milestone_cols <- grep("^(PC|MK|ICS|SBP|PROF|PBL|PBLI)\\d+", names(milestone_data), value = TRUE)
+  
   if (length(milestone_cols) == 0) {
-    stop("No milestone columns found in the data")
+    stop("No milestone columns found. Check Question.Key format in your data.")
   }
   
-  cat("Data processing complete!\n")
-  cat("Milestone columns found:", paste(milestone_cols, collapse = ", "), "\n")
-  cat("Processed", nrow(processed_data), "rows\n")
+  cat("Found", length(milestone_cols), "milestone sub-competencies\n")
+  cat("Sample milestones:", paste(head(milestone_cols, 5), collapse = ", "), "\n")
   
-  return(processed_data)
+  # Determine competency categories
+  categories <- unique(substr(milestone_cols, 1, regexpr("\\d", milestone_cols) - 1))
+  cat("Competency categories:", paste(categories, collapse = ", "), "\n")
+  
+  return(list(
+    milestone_data = milestone_data,
+    residents = residents,
+    milestone_columns = milestone_cols,
+    competency_categories = categories,
+    n_residents = nrow(residents),
+    n_evaluations = nrow(milestone_data),
+    n_milestones = length(milestone_cols)
+  ))
+}
+
+#' Find Column Name Flexibly
+#'
+#' Helper function to find column names with various possible formats
+#'
+#' @param col_names Vector of available column names
+#' @param possible_names Vector of possible column names to look for
+#' @param required Whether the column is required (default TRUE)
+#' @return Column name if found, NULL if not found and not required
+find_column <- function(col_names, possible_names, required = TRUE) {
+  
+  # Try exact matches first
+  for (name in possible_names) {
+    if (name %in% col_names) {
+      return(name)
+    }
+  }
+  
+  # Try case-insensitive matches
+  for (name in possible_names) {
+    match_idx <- which(tolower(col_names) == tolower(name))
+    if (length(match_idx) > 0) {
+      return(col_names[match_idx[1]])
+    }
+  }
+  
+  # Try partial matches
+  for (name in possible_names) {
+    match_idx <- grep(gsub("\\.", ".*", name), col_names, ignore.case = TRUE)
+    if (length(match_idx) > 0) {
+      return(col_names[match_idx[1]])
+    }
+  }
+  
+  if (required) {
+    return(NULL)  # Will trigger error in calling function
+  } else {
+    return(NULL)
+  }
+}
+
+#' Standardize Milestone Keys
+#'
+#' Converts various milestone question key formats to standard format
+#'
+#' @param keys Vector of question keys
+#' @return Standardized milestone keys
+standardize_milestone_keys <- function(keys) {
+  
+  standardized <- keys %>%
+    # Patient Care: Various formats to PC#
+    str_replace_all("[Cc]omp[1-9]_PC_Q(\\d+)", "PC\\1") %>%
+    str_replace_all("PC[_\\.]?(\\d+)", "PC\\1") %>%
+    
+    # Medical Knowledge: Various formats to MK#
+    str_replace_all("[Cc]omp[1-9]_MK_Q(\\d+)", "MK\\1") %>%
+    str_replace_all("MK[_\\.]?(\\d+)", "MK\\1") %>%
+    
+    # Interpersonal Communication: Various formats to ICS#
+    str_replace_all("[Cc]omp[1-9]_ICS_Q(\\d+)", "ICS\\1") %>%
+    str_replace_all("ICS[_\\.]?(\\d+)", "ICS\\1") %>%
+    
+    # Systems-Based Practice: Various formats to SBP#
+    str_replace_all("[Cc]omp[1-9]_SBP_Q(\\d+)", "SBP\\1") %>%
+    str_replace_all("SBP[_\\.]?(\\d+)", "SBP\\1") %>%
+    
+    # Professionalism: Various formats to PROF#
+    str_replace_all("[Cc]omp[1-9]_(PROF|PR)_Q(\\d+)", "PROF\\2") %>%
+    str_replace_all("PROF[_\\.]?(\\d+)", "PROF\\1") %>%
+    str_replace_all("PR[_\\.]?(\\d+)", "PROF\\1") %>%
+    
+    # Practice-Based Learning: Various formats to PBL#
+    str_replace_all("[Cc]omp[1-9]_(PBL|PBLI)_Q(\\d+)", "PBL\\2") %>%
+    str_replace_all("PBLI?[_\\.]?(\\d+)", "PBL\\1")
+  
+  return(standardized)
+}
+
+#' Calculate Medians from Generic Milestone Data
+#'
+#' @param processed_data Output from import_and_process_milestones_generic
+#' @param verbose Print progress messages
+#' @return Data frame with median calculations
+calculate_milestone_medians <- function(processed_data, verbose = TRUE) {
+  
+  milestone_data <- processed_data$milestone_data
+  milestone_cols <- processed_data$milestone_columns
+  
+  if (verbose) {
+    cat("Calculating medians for", length(milestone_cols), "milestones\n")
+  }
+  
+  medians <- milestone_data %>%
+    group_by(period, Level) %>%
+    summarise(
+      across(all_of(milestone_cols), ~ median(.x, na.rm = TRUE)),
+      n_residents = n(),
+      .groups = "drop"
+    ) %>%
+    arrange(period, Level)
+  
+  if (verbose) {
+    cat("Calculated medians for", nrow(medians), "period/level combinations\n")
+  }
+  
+  return(medians)
+}
+
+#' Create Summary Statistics
+#'
+#' @param processed_data Output from import_and_process_milestones_generic
+#' @return List of summary information
+create_milestone_summary <- function(processed_data) {
+  
+  milestone_data <- processed_data$milestone_data
+  residents <- processed_data$residents
+  
+  # Basic counts
+  periods <- unique(milestone_data$period)
+  levels <- unique(milestone_data$Level)
+  milestone_cols <- processed_data$milestone_columns
+  categories <- processed_data$competency_categories
+  
+  # Data completeness
+  total_possible <- nrow(milestone_data) * length(milestone_cols)
+  total_actual <- sum(!is.na(milestone_data[milestone_cols]))
+  completeness <- round(total_actual / total_possible * 100, 1)
+  
+  return(list(
+    n_residents = nrow(residents),
+    n_evaluations = nrow(milestone_data),
+    n_milestones = length(milestone_cols),
+    n_periods = length(periods),
+    n_levels = length(levels),
+    periods = periods,
+    levels = levels,
+    competency_categories = categories,
+    data_completeness = completeness
+  ))
 }
 
 #' Function to detect program characteristics

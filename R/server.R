@@ -28,37 +28,122 @@ server <- function(input, output, session) {
     }
   })
   
-  # Process CSV data using your existing functions
+  # =============================================================================
+  # GENERIC SERVER UPDATE - WORKS WITH ANY ACGME MILESTONE DATA
+  # Replace your observeEvent(input$process_csv) section with this
+  # =============================================================================
+  
+  # Process CSV data using GENERIC functions (works for any specialty)
   observeEvent(input$process_csv, {
     req(input$csv_files)
     
-    showNotification("Processing CSV data using gmed functions...", 
+    showNotification("Processing milestone CSV data...", 
                      type = "message", duration = NULL, id = "processing")
     
     tryCatch({
-      # Use your existing import_and_process_milestones function
-      processed <- import_and_process_milestones(input$csv_files$datapath)
-      processed_data(processed)
       
-      # Use your existing calculate_comprehensive_medians function
-      medians <- calculate_comprehensive_medians(processed, verbose = FALSE)
+      # Use the GENERIC processing function
+      processed_results <- import_and_process_milestones_generic(input$csv_files$datapath)
+      
+      # Store the results
+      processed_data(processed_results$milestone_data)
+      residents_data(processed_results$residents)
+      
+      # Calculate medians
+      medians <- calculate_milestone_medians(processed_results, verbose = TRUE)
       median_results(medians)
       
-      # Create residents lookup using your existing structure
-      residents <- create_residents_lookup(processed)
-      residents_data(residents)
+      # Create summary for display
+      summary_info <- create_milestone_summary(processed_results)
       
-      # Update UI choices
-      update_ui_choices(processed, medians)
-      
+      # Remove processing notification
       removeNotification("processing")
-      showNotification("Data processed successfully using gmed functions!", type = "success", duration = 3)
+      
+      # Create detailed success message
+      success_msg <- paste0(
+        "Data loaded successfully! ",
+        "Loaded ", summary_info$n_residents, " residents, ",
+        summary_info$n_evaluations, " evaluations, ",
+        summary_info$n_milestones, " sub-competencies"
+      )
+      
+      showNotification(success_msg, type = "success", duration = 5)
+      
+      # Log summary to console
+      cat("\n=== DATA PROCESSING SUMMARY ===\n")
+      cat("Residents:", summary_info$n_residents, "\n")
+      cat("Evaluations:", summary_info$n_evaluations, "\n") 
+      cat("Sub-competencies:", summary_info$n_milestones, "\n")
+      cat("Assessment periods:", summary_info$n_periods, "\n")
+      cat("Training levels:", summary_info$n_levels, "\n")
+      cat("Competency categories:", paste(summary_info$competency_categories, collapse = ", "), "\n")
+      cat("Data completeness:", summary_info$data_completeness, "%\n")
+      cat("===============================\n")
       
     }, error = function(e) {
       removeNotification("processing")
-      showNotification(paste("Error processing data:", e$message), type = "error", duration = 10)
+      error_msg <- paste("Error processing data:", e$message)
+      showNotification(error_msg, type = "error", duration = 10)
+      cat("Processing error:", e$message, "\n")
+      print(traceback())
     })
   })
+  
+  # Update the data summary output (generic version)
+  output$data_summary <- renderText({
+    if (!is.null(processed_data()) && !is.null(residents_data())) {
+      processed_results <- list(
+        milestone_data = processed_data(),
+        residents = residents_data(),
+        milestone_columns = grep("^(PC|MK|ICS|SBP|PROF|PBL|PBLI)\\d+", 
+                                 names(processed_data()), value = TRUE)
+      )
+      
+      summary_info <- create_milestone_summary(processed_results)
+      
+      paste0(
+        summary_info$n_residents, " residents, ",
+        summary_info$n_evaluations, " evaluations, ", 
+        summary_info$n_milestones, " sub-competencies"
+      )
+    } else {
+      ""
+    }
+  })
+  
+  # Add a reactive to check if data is loaded
+  output$data_loaded <- reactive({
+    !is.null(processed_data()) && !is.null(residents_data())
+  })
+  outputOptions(output, "data_loaded", suspendWhenHidden = FALSE)
+  
+  # Update the data summary output
+  output$data_summary <- renderText({
+    if (!is.null(processed_data()) && !is.null(residents_data())) {
+      processed_results <- list(
+        milestone_data = processed_data(),
+        residents = residents_data(),
+        milestone_columns = grep("^(PC|MK|SBP|PBL|PROF|ICS)\\d+", 
+                                 names(processed_data()), value = TRUE)
+      )
+      
+      summary_info <- create_imslu_summary(processed_results)
+      
+      paste0(
+        summary_info$n_residents, " residents, ",
+        summary_info$n_evaluations, " evaluations, ", 
+        summary_info$n_milestones, " sub-competencies"
+      )
+    } else {
+      ""
+    }
+  })
+  
+  # Add a reactive to check if data is loaded (for conditional panels)
+  output$data_loaded <- reactive({
+    !is.null(processed_data()) && !is.null(residents_data())
+  })
+  outputOptions(output, "data_loaded", suspendWhenHidden = FALSE)
   
   # Helper function to create residents lookup
   create_residents_lookup <- function(data) {
