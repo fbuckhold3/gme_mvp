@@ -1,7 +1,7 @@
-# ============================================================================
-# GME MILESTONE VISUALIZATION PROJECT - SERVER (CSV FILES ONLY)
+# =============================================================================
+# GME MILESTONE VISUALIZATION PROJECT - SERVER (CSV ONLY VERSION)
 # R/server.R
-# ============================================================================
+# =============================================================================
 
 server <- function(input, output, session) {
   
@@ -9,342 +9,535 @@ server <- function(input, output, session) {
   # REACTIVE VALUES
   # ========================================================================
   
-  # Reactive value to store processed CSV data
-  csv_processed_data <- reactiveVal(NULL)
+  processed_data <- reactiveVal(NULL)
+  median_results <- reactiveVal(NULL)
+  residents_data <- reactiveVal(NULL)
   
   # ========================================================================
-  # CSV DATA UPLOAD STATUS
+  # DATA PROCESSING (Using Your Existing Functions)
   # ========================================================================
   
-  # CSV data upload status display
-  output$acgme_data_status <- renderUI({
-    if (is.null(input$acgme_csv_files)) {
-      tags$span(icon("info-circle"), " No CSV files uploaded", class = "text-muted")
+  # CSV upload status
+  output$csv_status <- renderUI({
+    if (is.null(input$csv_files)) {
+      tags$span(icon("info-circle"), " No files uploaded", class = "text-muted")
     } else {
       tags$span(icon("check-circle"), 
-                paste(nrow(input$acgme_csv_files), "CSV files uploaded"), 
+                paste(nrow(input$csv_files), "file(s) uploaded"), 
                 class = "text-success")
     }
   })
   
-  # ========================================================================
-  # CSV DATA PROCESSING
-  # ========================================================================
-  
-  # Process uploaded CSV data when button is clicked
-  observeEvent(input$process_acgme_data, {
-    req(input$acgme_csv_files)
+  # Process CSV data using your existing functions
+  observeEvent(input$process_csv, {
+    req(input$csv_files)
     
-    # Show processing notification
-    showNotification("Processing CSV data and extracting milestone structure...", 
-                     type = "message", duration = NULL, id = "csv_processing")
+    showNotification("Processing CSV data using gmed functions...", 
+                     type = "message", duration = NULL, id = "processing")
     
     tryCatch({
-      # Process CSV files using function from helpers.R
-      csv_result <- import_and_process_milestones(input$acgme_csv_files$datapath)
+      # Use your existing import_and_process_milestones function
+      processed <- import_and_process_milestones(input$csv_files$datapath)
+      processed_data(processed)
       
-      # Store processed data
-      csv_processed_data(csv_result)
+      # Use your existing calculate_comprehensive_medians function
+      medians <- calculate_comprehensive_medians(processed, verbose = FALSE)
+      median_results(medians)
       
-      # Extract key info for success message
-      n_residents <- length(unique(csv_result$Resident.ID))
-      n_periods <- length(unique(csv_result$period))
-      milestone_cols <- grep("^(PC|MK|SBP|PBL|PROF|ICS)", names(csv_result), value = TRUE)
-      n_milestones <- length(milestone_cols)
+      # Create residents lookup using your existing structure
+      residents <- create_residents_lookup(processed)
+      residents_data(residents)
       
-      success_msg <- paste("Successfully processed", n_residents, "residents with", 
-                           n_milestones, "milestones across", n_periods, "periods")
+      # Update UI choices
+      update_ui_choices(processed, medians)
       
-      # Success notification
-      removeNotification("csv_processing")
-      showNotification(success_msg, type = "success", duration = 8)
+      removeNotification("processing")
+      showNotification("Data processed successfully using gmed functions!", type = "success", duration = 3)
       
     }, error = function(e) {
-      removeNotification("csv_processing")
-      showNotification(paste("Error processing CSV data:", e$message), 
-                       type = "error", duration = 15)
-      print(paste("CSV Debug error:", e$message))
+      removeNotification("processing")
+      showNotification(paste("Error processing data:", e$message), type = "error", duration = 10)
     })
   })
   
-  # ========================================================================
-  # CONDITIONAL UI CONTROL
-  # ========================================================================
+  # Helper function to create residents lookup
+  create_residents_lookup <- function(data) {
+    if ("Resident.ID" %in% names(data) && "First.Name" %in% names(data)) {
+      # Use the structure from your existing functions
+      residents <- data %>%
+        select(any_of(c("Resident.ID", "First.Name", "Last.Name", "Resident.Year"))) %>%
+        distinct() %>%
+        filter(!is.na(Resident.ID)) %>%
+        mutate(
+          name = paste(coalesce(First.Name, ""), coalesce(Last.Name, "")),
+          record_id = as.character(Resident.ID),
+          Level = as.character(Resident.Year)
+        ) %>%
+        select(record_id, name, Level) %>%
+        filter(name != " ") %>%  # Remove empty names
+        arrange(name)
+      
+      return(residents)
+    }
+    return(data.frame())
+  }
   
-  # CSV data loaded flag for conditional panels
-  output$acgme_data_loaded <- reactive({
-    !is.null(csv_processed_data())
+  # Helper function to update UI choices
+  update_ui_choices <- function(data, medians) {
+    # Update period choices from your data structure
+    if ("period" %in% names(data)) {
+      periods <- unique(data$period)
+      period_choices <- c("Total (All Periods)" = "total", setNames(periods, periods))
+      
+      updateSelectInput(session, "program_period", choices = period_choices)
+      updateSelectInput(session, "resident_period", choices = period_choices)
+    }
+    
+    # Update resident choices
+    residents <- residents_data()
+    if (!is.null(residents) && nrow(residents) > 0) {
+      resident_choices <- setNames(residents$record_id, residents$name)
+      updateSelectInput(session, "selected_resident", choices = resident_choices)
+    }
+    
+    # Update training year choices
+    if ("Resident.Year" %in% names(data)) {
+      years <- sort(unique(data$Resident.Year))
+      year_choices <- c("All Years" = "all", setNames(paste("PGY", years), years))
+      updateSelectInput(session, "program_level", choices = year_choices)
+    }
+    
+    # Update milestone choices from your median results
+    if (!is.null(medians) && "overall_medians" %in% names(medians)) {
+      milestones <- medians$overall_medians$Sub_Competency
+      milestone_choices <- setNames(milestones, milestones)
+      updateSelectInput(session, "selected_milestone", choices = milestone_choices)
+    }
+  }
+  
+  # Data loaded flag
+  output$data_loaded <- reactive({
+    !is.null(processed_data()) && !is.null(median_results())
   })
-  outputOptions(output, "acgme_data_loaded", suspendWhenHidden = FALSE)
+  outputOptions(output, "data_loaded", suspendWhenHidden = FALSE)
   
-  # ========================================================================
-  # DATA SUMMARY DISPLAYS
-  # ========================================================================
-  
-  # CSV specialty detected message
-  output$acgme_specialty_detected <- renderText({
-    req(csv_processed_data())
+  # Data summary
+  output$data_summary <- renderText({
+    req(processed_data(), residents_data())
     
-    data <- csv_processed_data()
-    n_residents <- length(unique(data$Resident.ID))
-    milestone_cols <- grep("^(PC|MK|SBP|PBL|PROF|ICS)", names(data), value = TRUE)
-    competencies <- unique(substr(milestone_cols, 1, 2))
-    n_periods <- length(unique(data$period))
+    data <- processed_data()
+    residents <- residents_data()
+    medians <- median_results()
     
-    paste("Detected:", length(competencies), "competencies,", 
-          length(milestone_cols), "milestones,", 
-          n_periods, "periods for", n_residents, "residents")
+    paste0("Loaded ", nrow(residents), " residents, ",
+           nrow(data), " evaluations, ",
+           length(medians$milestone_columns), " sub-competencies")
   })
   
   # ========================================================================
-  # UI UPDATES BASED ON CSV DATA
+  # PROGRAM OVERVIEW OUTPUTS (Using Your Existing Functions)
   # ========================================================================
   
-  # Update resident choices based on processed data
-  observe({
-    req(csv_processed_data())
+  # Program strengths table
+  output$strengths_table <- DT::renderDataTable({
+    req(processed_data(), median_results())
     
-    data <- csv_processed_data()
+    medians <- median_results()
     
-    # Create resident lookup from processed data
-    residents <- data %>%
-      select(Resident.ID, Resident.Year) %>%
-      distinct() %>%
+    # Use your existing median structure to create strengths
+    strengths <- medians$overall_medians %>%
+      arrange(desc(Overall_Median)) %>%
+      head(5) %>%
       mutate(
-        record_id = as.character(Resident.ID),
-        name = paste("Resident", Resident.ID, "(Year", Resident.Year, ")"),
-        Level = as.character(Resident.Year)
-      )
-    
-    choices <- setNames(residents$record_id, residents$name)
-    updateSelectInput(session, "acgme_resident_select", choices = choices)
-  })
-  
-  # Update period choices based on processed data
-  observe({
-    req(csv_processed_data())
-    
-    periods <- unique(csv_processed_data()$period)
-    periods <- c("Total", periods[!is.na(periods)])
-    
-    updateSelectInput(session, "acgme_period_select", choices = periods)
-  })
-  
-  # ========================================================================
-  # DATA SUMMARY TABLES
-  # ========================================================================
-  
-  # Competency structure table
-  output$acgme_competency_structure <- DT::renderDataTable({
-    req(csv_processed_data())
-    
-    data <- csv_processed_data()
-    milestone_cols <- grep("^(PC|MK|SBP|PBL|PROF|ICS)", names(data), value = TRUE)
-    competencies <- unique(substr(milestone_cols, 1, 2))
-    
-    # Create competency structure table
-    competency_table <- data.frame(
-      Code = competencies,
-      `Competency Name` = case_when(
-        competencies == "PC" ~ "Patient Care",
-        competencies == "MK" ~ "Medical Knowledge",
-        competencies == "SBP" ~ "Systems-Based Practice",
-        competencies == "PBL" ~ "Practice-Based Learning and Improvement",
-        competencies == "PROF" ~ "Professionalism",
-        competencies == "ICS" ~ "Interpersonal Communication Skills",
-        TRUE ~ "Unknown"
-      ),
-      `Sub-competencies` = sapply(competencies, function(comp) {
-        comp_cols <- grep(paste0("^", comp), milestone_cols, value = TRUE)
-        length(comp_cols)
-      }),
-      stringsAsFactors = FALSE
-    )
-    
-    competency_table
-  }, options = list(dom = 't', pageLength = 10))
-  
-  # Dataset summary table
-  output$acgme_dataset_summary <- renderTable({
-    req(csv_processed_data())
-    
-    data <- csv_processed_data()
-    milestone_cols <- grep("^(PC|MK|SBP|PBL|PROF|ICS)", names(data), value = TRUE)
-    competencies <- unique(substr(milestone_cols, 1, 2))
-    
-    summary_table <- data.frame(
-      Metric = c("Total Residents", "Training Years", "Milestones", "Competencies", "Periods"),
-      Value = c(
-        length(unique(data$Resident.ID)),
-        paste(sort(unique(data$Resident.Year)), collapse = ", "),
-        length(milestone_cols),
-        length(competencies),
-        paste(unique(data$period), collapse = ", ")
-      ),
-      stringsAsFactors = FALSE
-    )
-    
-    summary_table
-  }, bordered = TRUE, striped = TRUE)
-  
-  # Milestone details table
-  output$acgme_milestone_details <- DT::renderDataTable({
-    req(csv_processed_data())
-    
-    data <- csv_processed_data()
-    milestone_cols <- grep("^(PC|MK|SBP|PBL|PROF|ICS)", names(data), value = TRUE)
-    
-    # Create milestone details table
-    milestone_details <- data.frame(
-      Competency = substr(milestone_cols, 1, 2),
-      Milestone = milestone_cols,
-      Description = paste("Milestone", milestone_cols),
-      stringsAsFactors = FALSE
-    ) %>%
-      mutate(
-        `Competency Name` = case_when(
-          Competency == "PC" ~ "Patient Care",
-          Competency == "MK" ~ "Medical Knowledge",
-          Competency == "SBP" ~ "Systems-Based Practice",
-          Competency == "PBL" ~ "Practice-Based Learning",
-          Competency == "PROF" ~ "Professionalism",
-          Competency == "ICS" ~ "Interpersonal Communication",
-          TRUE ~ "Unknown"
-        )
+        `Sub-Competency` = Sub_Competency,
+        `Median Score` = round(Overall_Median, 1),
+        Category = Category
       ) %>%
-      select(Competency, `Competency Name`, Milestone, Description) %>%
-      arrange(Competency, Milestone)
+      select(`Sub-Competency`, Category, `Median Score`)
     
-    milestone_details
-  }, options = list(pageLength = 15, scrollX = TRUE))
+    return(strengths)
+  }, options = list(pageLength = 5, searching = FALSE, dom = 't'))
   
-  # ========================================================================
-  # INDIVIDUAL VISUALIZATIONS
-  # ========================================================================
-  
-  # Individual spider chart
-  output$acgme_individual_spider <- renderPlotly({
-    req(csv_processed_data(), input$acgme_resident_select, input$acgme_period_select)
+  # Program improvements table
+  output$improvements_table <- DT::renderDataTable({
+    req(processed_data(), median_results())
     
-    tryCatch({
-      data <- csv_processed_data()
-      
-      # Filter data for selected resident and period
-      resident_data <- data %>%
-        filter(Resident.ID == input$acgme_resident_select)
-      
-      if (input$acgme_period_select != "Total") {
-        resident_data <- resident_data %>%
-          filter(period == input$acgme_period_select)
-      }
-      
-      if (nrow(resident_data) == 0) {
-        return(plotly_empty() %>%
-                 add_annotations(text = "No data available for selected resident/period", 
-                                 showarrow = FALSE))
-      }
-      
-      # Calculate competency averages
-      milestone_cols <- grep("^(PC|MK|SBP|PBL|PROF|ICS)", names(data), value = TRUE)
-      competencies <- unique(substr(milestone_cols, 1, 2))
-      
-      competency_scores <- sapply(competencies, function(comp) {
-        comp_cols <- milestone_cols[grepl(paste0("^", comp), milestone_cols)]
-        if (length(comp_cols) > 0) {
-          mean(as.numeric(resident_data[comp_cols]), na.rm = TRUE)
-        } else {
-          NA
-        }
-      })
-      
-      # Remove NA scores
-      competency_scores <- competency_scores[!is.na(competency_scores)]
-      
-      if (length(competency_scores) == 0) {
-        return(plotly_empty() %>%
-                 add_annotations(text = "No competency scores available", 
-                                 showarrow = FALSE))
-      }
-      
-      # Create competency names
-      competency_names <- case_when(
-        names(competency_scores) == "PC" ~ "Patient Care",
-        names(competency_scores) == "MK" ~ "Medical Knowledge",
-        names(competency_scores) == "SBP" ~ "Systems-Based Practice",
-        names(competency_scores) == "PBL" ~ "Practice-Based Learning",
-        names(competency_scores) == "PROF" ~ "Professionalism",
-        names(competency_scores) == "ICS" ~ "Interpersonal Communication",
-        TRUE ~ names(competency_scores)
+    medians <- median_results()
+    
+    # Use your existing median structure to identify areas for improvement
+    improvements <- medians$overall_medians %>%
+      arrange(Overall_Median) %>%
+      head(5) %>%
+      mutate(
+        `Sub-Competency` = Sub_Competency,
+        `Median Score` = round(Overall_Median, 1),
+        Category = Category
+      ) %>%
+      select(`Sub-Competency`, Category, `Median Score`)
+    
+    return(improvements)
+  }, options = list(pageLength = 5, searching = FALSE, dom = 't'))
+  
+  # Program spider plot using your existing functions
+  output$program_spider <- renderPlotly({
+    req(median_results())
+    
+    medians <- median_results()
+    
+    # Use your existing median calculations for spider plot
+    spider_data <- medians$overall_medians %>%
+      group_by(Category) %>%
+      summarise(avg_median = mean(Overall_Median, na.rm = TRUE), .groups = "drop") %>%
+      arrange(Category)
+    
+    if (nrow(spider_data) == 0) {
+      return(plotly::plot_ly() %>% 
+               plotly::add_annotations(text = "No data available", 
+                                       x = 0.5, y = 0.5, showarrow = FALSE))
+    }
+    
+    # Create spider plot
+    plot_ly(
+      type = 'scatterpolar',
+      r = spider_data$avg_median,
+      theta = spider_data$Category,
+      fill = 'toself',
+      fillcolor = 'rgba(52, 152, 219, 0.3)',
+      line = list(color = 'rgb(52, 152, 219)', width = 3),
+      marker = list(size = 8, color = 'rgb(52, 152, 219)'),
+      hovertemplate = '<b>%{theta}</b><br>Average Median: %{r}<extra></extra>'
+    ) %>%
+      layout(
+        polar = list(
+          radialaxis = list(
+            visible = TRUE,
+            range = c(1, 9),
+            tickmode = 'linear',
+            tick0 = 1,
+            dtick = 1
+          ),
+          angularaxis = list(
+            tickfont = list(size = 12)
+          )
+        ),
+        title = "Program Competency Profile",
+        showlegend = FALSE
       )
+  })
+  
+  # Competency trends using your existing median calculations
+  output$competency_trends <- renderPlotly({
+    req(median_results())
+    
+    medians <- median_results()
+    
+    # Use your period_year_medians for trends if available
+    if ("period_year_medians" %in% names(medians)) {
+      trend_data <- medians$period_year_medians %>%
+        group_by(Category, Training_Year) %>%
+        summarise(avg_median = mean(Period_Year_Median, na.rm = TRUE), .groups = "drop") %>%
+        filter(!is.na(avg_median))
       
-      # Create spider chart
+      if (nrow(trend_data) > 0) {
+        plot_ly(trend_data, x = ~Training_Year, y = ~avg_median, 
+                color = ~Category, type = 'scatter', mode = 'lines+markers',
+                hovertemplate = '<b>%{data.name}</b><br>Year: %{x}<br>Average Median: %{y}<extra></extra>') %>%
+          layout(
+            title = "Competency Progression by Training Year",
+            xaxis = list(title = "Training Year"),
+            yaxis = list(title = "Average Median Score", range = c(1, 9)),
+            hovermode = 'closest'
+          )
+      } else {
+        plotly::plot_ly() %>% 
+          plotly::add_annotations(text = "No trend data available", 
+                                  x = 0.5, y = 0.5, showarrow = FALSE)
+      }
+    } else {
+      plotly::plot_ly() %>% 
+        plotly::add_annotations(text = "No trend data available", 
+                                x = 0.5, y = 0.5, showarrow = FALSE)
+    }
+  })
+  
+  # Milestone heatmap using your existing comprehensive medians
+  output$milestone_heatmap <- renderPlotly({
+    req(median_results())
+    
+    medians <- median_results()
+    metric <- input$heatmap_metric
+    
+    # Select the appropriate median data based on metric
+    heatmap_data <- switch(metric,
+                           "overall" = medians$overall_medians,
+                           "period" = medians$period_medians,
+                           "year" = medians$year_medians,
+                           medians$overall_medians
+    )
+    
+    if (is.null(heatmap_data) || nrow(heatmap_data) == 0) {
+      return(plotly::plot_ly() %>% 
+               plotly::add_annotations(text = "No heatmap data available", 
+                                       x = 0.5, y = 0.5, showarrow = FALSE))
+    }
+    
+    # Create heatmap matrix
+    if (metric == "overall" && "Sub_Competency" %in% names(heatmap_data)) {
+      heatmap_matrix <- heatmap_data %>%
+        select(Category, Sub_Competency, Overall_Median) %>%
+        mutate(Sub_Comp_Num = as.numeric(gsub("^[A-Z]+", "", Sub_Competency))) %>%
+        arrange(Category, Sub_Comp_Num) %>%
+        pivot_wider(names_from = Sub_Competency, values_from = Overall_Median)
+      
+      categories <- heatmap_matrix$Category
+      heatmap_matrix <- heatmap_matrix %>% select(-Category)
+      milestones <- colnames(heatmap_matrix)
+      
       plot_ly(
-        type = 'scatterpolar',
-        mode = 'lines+markers',
-        r = as.numeric(competency_scores),
-        theta = competency_names,
-        fill = 'toself',
-        name = 'Individual Performance',
-        line = list(color = '#2C3E50'),
-        marker = list(color = '#3498DB', size = 8)
+        z = as.matrix(heatmap_matrix),
+        x = milestones,
+        y = categories,
+        type = "heatmap",
+        colorscale = list(
+          c(0, "red"),
+          c(0.5, "yellow"), 
+          c(1, "green")
+        ),
+        hovertemplate = '<b>%{y}</b><br>%{x}<br>Median: %{z}<extra></extra>'
       ) %>%
         layout(
-          polar = list(
-            radialaxis = list(
-              visible = TRUE,
-              range = c(0, 9),
-              tickmode = 'linear',
-              tick0 = 0,
-              dtick = 1
-            )
-          ),
-          title = paste("Competency Performance - Resident", input$acgme_resident_select, 
-                        "-", input$acgme_period_select)
+          title = "Sub-Competency Performance Heatmap",
+          xaxis = list(title = "Sub-Competencies", tickangle = -45),
+          yaxis = list(title = "Competency Categories")
         )
-      
-    }, error = function(e) {
-      plotly_empty() %>%
-        add_annotations(text = paste("Error creating chart:", e$message), 
-                        showarrow = FALSE)
-    })
+    } else {
+      plotly::plot_ly() %>% 
+        plotly::add_annotations(text = "Heatmap not available for this metric", 
+                                x = 0.5, y = 0.5, showarrow = FALSE)
+    }
   })
   
   # ========================================================================
-  # MODULE SERVERS (IF AVAILABLE)
+  # INDIVIDUAL RESIDENT OUTPUTS
   # ========================================================================
   
-  # Program overview module (if exists)
-  observe({
-    req(csv_processed_data())
+  # Resident information
+  output$resident_info <- renderUI({
+    req(residents_data(), input$selected_resident)
     
-    if (exists("mod_acgme_program_overview_server")) {
-      tryCatch({
-        mod_acgme_program_overview_server(
-          "acgme_program_overview",
-          processed_data = reactive(csv_processed_data())
+    residents <- residents_data()
+    resident <- residents %>% 
+      filter(record_id == input$selected_resident)
+    
+    if (nrow(resident) == 0) return(p("Resident not found"))
+    
+    tagList(
+      p(tags$strong("Name: "), resident$name),
+      p(tags$strong("Training Year: "), paste("PGY-", resident$Level)),
+      p(tags$strong("Record ID: "), resident$record_id),
+      p(tags$strong("Evaluations: "), get_resident_eval_count())
+    )
+  })
+  
+  # Helper function to get evaluation count for selected resident
+  get_resident_eval_count <- function() {
+    req(processed_data(), input$selected_resident)
+    
+    data <- processed_data()
+    if ("Resident.ID" %in% names(data)) {
+      count <- data %>%
+        filter(Resident.ID == input$selected_resident) %>%
+        nrow()
+      return(count)
+    }
+    return("Unknown")
+  }
+  
+  # Resident spider plot
+  output$resident_spider <- renderPlotly({
+    req(processed_data(), median_results(), input$selected_resident)
+    
+    data <- processed_data()
+    medians <- median_results()
+    residents <- residents_data()
+    
+    # Get resident data
+    resident_data <- data %>%
+      filter(Resident.ID == input$selected_resident)
+    
+    if (nrow(resident_data) == 0) {
+      return(plotly::plot_ly() %>% 
+               plotly::add_annotations(text = "No data available for this resident", 
+                                       x = 0.5, y = 0.5, showarrow = FALSE))
+    }
+    
+    # Get milestone columns from your data structure
+    milestone_cols <- grep("^(PC|MK|SBP|PBL|PROF|ICS)\\d+$", names(resident_data), value = TRUE)
+    
+    if (length(milestone_cols) == 0) {
+      return(plotly::plot_ly() %>% 
+               plotly::add_annotations(text = "No milestone columns found", 
+                                       x = 0.5, y = 0.5, showarrow = FALSE))
+    }
+    
+    # Calculate resident competency scores
+    resident_scores <- resident_data %>%
+      select(all_of(milestone_cols)) %>%
+      pivot_longer(everything(), names_to = "milestone", values_to = "score") %>%
+      filter(!is.na(score)) %>%
+      mutate(competency = substr(milestone, 1, 2)) %>%
+      group_by(competency) %>%
+      summarise(resident_score = median(score, na.rm = TRUE), .groups = "drop")
+    
+    # Calculate program medians by competency
+    program_medians <- medians$overall_medians %>%
+      group_by(Category) %>%
+      summarise(program_median = mean(Overall_Median, na.rm = TRUE), .groups = "drop") %>%
+      rename(competency = Category)
+    
+    # Combine data
+    spider_data <- resident_scores %>%
+      left_join(program_medians, by = "competency") %>%
+      arrange(competency)
+    
+    if (nrow(spider_data) == 0) {
+      return(plotly::plot_ly() %>% 
+               plotly::add_annotations(text = "No competency data", 
+                                       x = 0.5, y = 0.5, showarrow = FALSE))
+    }
+    
+    # Create spider plot with both resident and program data
+    plot_ly() %>%
+      add_trace(
+        type = 'scatterpolar',
+        r = spider_data$program_median,
+        theta = spider_data$competency,
+        fill = 'toself',
+        fillcolor = 'rgba(169, 169, 169, 0.2)',
+        line = list(color = 'rgba(169, 169, 169, 0.8)', width = 2, dash = 'dash'),
+        name = 'Program Median',
+        hovertemplate = '<b>%{theta}</b><br>Program Median: %{r}<extra></extra>'
+      ) %>%
+      add_trace(
+        type = 'scatterpolar', 
+        r = spider_data$resident_score,
+        theta = spider_data$competency,
+        fill = 'toself',
+        fillcolor = 'rgba(52, 152, 219, 0.3)',
+        line = list(color = 'rgb(52, 152, 219)', width = 3),
+        marker = list(size = 8, color = 'rgb(52, 152, 219)'),
+        name = 'Resident',
+        hovertemplate = '<b>%{theta}</b><br>Resident Score: %{r}<extra></extra>'
+      ) %>%
+      layout(
+        polar = list(
+          radialaxis = list(
+            visible = TRUE,
+            range = c(1, 9),
+            tickmode = 'linear',
+            tick0 = 1,
+            dtick = 1
+          ),
+          angularaxis = list(
+            tickfont = list(size = 12)
+          )
+        ),
+        title = "Individual vs Program Competency Profile",
+        showlegend = TRUE,
+        legend = list(x = 0.8, y = 0.1)
+      )
+  })
+  
+  # Milestone progression plot
+  output$milestone_progression <- renderPlotly({
+    req(processed_data(), input$selected_resident, input$selected_milestone)
+    
+    data <- processed_data()
+    
+    # Get resident milestone data over time
+    resident_data <- data %>%
+      filter(Resident.ID == input$selected_resident) %>%
+      select(period, all_of(input$selected_milestone)) %>%
+      filter(!is.na(.data[[input$selected_milestone]])) %>%
+      rename(score = all_of(input$selected_milestone)) %>%
+      arrange(period)
+    
+    if (nrow(resident_data) == 0) {
+      return(plotly::plot_ly() %>% 
+               plotly::add_annotations(text = "No data available for this milestone", 
+                                       x = 0.5, y = 0.5, showarrow = FALSE))
+    }
+    
+    # Get program benchmark for this milestone
+    medians <- median_results()
+    program_benchmark <- medians$overall_medians %>%
+      filter(Sub_Competency == input$selected_milestone) %>%
+      pull(Overall_Median)
+    
+    if (length(program_benchmark) == 0) {
+      program_benchmark <- 5  # Default benchmark
+    }
+    
+    # Create progression plot
+    plot_ly(resident_data, x = ~period, y = ~score, type = 'scatter', mode = 'lines+markers',
+            line = list(color = 'rgb(52, 152, 219)', width = 3),
+            marker = list(size = 10, color = 'rgb(52, 152, 219)'),
+            hovertemplate = '<b>%{x}</b><br>Score: %{y}<extra></extra>') %>%
+      add_hline(y = program_benchmark, line = list(color = 'red', dash = 'dash', width = 2),
+                name = paste("Program Median:", round(program_benchmark, 1))) %>%
+      add_hline(y = 4, line = list(color = 'orange', dash = 'dot', width = 2),
+                name = "Benchmark (4.0)") %>%
+      add_hline(y = 6, line = list(color = 'green', dash = 'dot', width = 2),
+                name = "Target (6.0)") %>%
+      layout(
+        title = paste("Milestone Progression:", input$selected_milestone),
+        xaxis = list(title = "Assessment Period", tickangle = -45),
+        yaxis = list(title = "Score", range = c(1, 9)),
+        hovermode = 'x unified'
+      )
+  })
+  
+  # Resident scores table
+  output$resident_scores_table <- DT::renderDataTable({
+    req(processed_data(), input$selected_resident)
+    
+    data <- processed_data()
+    
+    # Get resident data
+    resident_data <- data %>%
+      filter(Resident.ID == input$selected_resident)
+    
+    if (nrow(resident_data) == 0) {
+      return(data.frame(Period = "No data", Milestone = "", Score = "", 
+                        Performance = "", check.names = FALSE))
+    }
+    
+    # Get milestone columns
+    milestone_cols <- grep("^(PC|MK|SBP|PBL|PROF|ICS)\\d+$", names(resident_data), value = TRUE)
+    
+    if (length(milestone_cols) == 0) {
+      return(data.frame(Period = "No milestone data", Milestone = "", Score = "", 
+                        Performance = "", check.names = FALSE))
+    }
+    
+    # Create detailed scores table
+    scores_table <- resident_data %>%
+      select(period, all_of(milestone_cols)) %>%
+      pivot_longer(cols = all_of(milestone_cols), names_to = "Milestone", values_to = "Score") %>%
+      filter(!is.na(Score)) %>%
+      mutate(
+        Competency = substr(Milestone, 1, 2),
+        Performance = case_when(
+          Score < 4 ~ "Below Benchmark",
+          Score < 6 ~ "At Benchmark", 
+          TRUE ~ "Above Target"
         )
-      }, error = function(e) {
-        message("Program overview server error: ", e$message)
-      })
-    }
-  })
+      ) %>%
+      arrange(period, Competency, Milestone) %>%
+      rename(Period = period) %>%
+      select(Period, Competency, Milestone, Score, Performance)
+    
+    return(scores_table)
+  }, options = list(pageLength = 10, scrollX = TRUE))
   
-  # ========================================================================
-  # SESSION MANAGEMENT
-  # ========================================================================
-  
-  # Clean up on session end
-  session$onSessionEnded(function() {
-    csv_processed_data(NULL)
-  })
-  
-  # ========================================================================
-  # DEBUG OUTPUT
-  # ========================================================================
-  
-  observe({
-    if (!is.null(csv_processed_data())) {
-      cat("CSV data loaded with", csv_processed_data()$n_residents, "residents\n")
-    }
-  })
 }
