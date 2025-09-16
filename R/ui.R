@@ -320,13 +320,13 @@ ui <- page_fluid(
                                       ),
                                       div(class = "card-body",
                                           
-                                          # MOVED: Sub-competency selector to top of graph
+                                          # SINGLE sub-competency selector at top
                                           fluidRow(
                                             column(6,
                                                    selectInput("trend_subcompetency",
                                                                "Select Sub-Competency for Trend Analysis:",
-                                                               choices = NULL,
-                                                               selected = NULL,
+                                                               choices = c("Select sub-competency..." = ""),
+                                                               selected = "",
                                                                width = "100%")
                                             ),
                                             column(6,
@@ -334,27 +334,26 @@ ui <- page_fluid(
                                                        "Comparison line shows average performance for that period across all sub-competencies")
                                             )
                                           ),
+                                          
+                                          # Period selection and options
                                           fluidRow(
                                             column(6,
-                                                   selectInput(
-                                                     "trend_subcompetency",
-                                                     "Select Sub-Competency for Trend Analysis:",
-                                                     choices = c("Select sub-competency..." = ""),
-                                                     width = "100%"
+                                                   conditionalPanel(
+                                                     condition = "input.trend_subcompetency != ''",
+                                                     wellPanel(
+                                                       style = "background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 15px;",
+                                                       uiOutput("trend_period_checkboxes")
+                                                     )
                                                    )
                                             ),
-                                            conditionalPanel(
-                                              condition = "input.trend_subcompetency != ''",
-                                              wellPanel(
-                                                style = "background-color: #f8f9fa; border: 1px solid #dee2e6;",
-                                                uiOutput("trend_period_checkboxes")
-                                              )
-                                            ),
                                             column(6,
-                                                   checkboxInput(
-                                                     "show_total_average",
-                                                     "Show Total Average Line",
-                                                     value = TRUE
+                                                   conditionalPanel(
+                                                     condition = "input.trend_subcompetency != ''",
+                                                     checkboxInput(
+                                                       "show_total_average",
+                                                       "Show Total Average Line",
+                                                       value = TRUE
+                                                     )
                                                    )
                                             )
                                           ),

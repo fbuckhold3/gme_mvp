@@ -458,7 +458,7 @@ create_all_levels_chart <- function(readiness_data) {
   return(fig)
 }
 
-#' Enhanced Trend Chart with Period Selection Checkboxes
+#' Create Enhanced Trend Chart with Fixed Horizontal Line
 #'
 #' @param trend_data Output from calculate_subcompetency_trends_enhanced()
 #' @param show_total_average Whether to show the total average line across all periods
@@ -517,58 +517,87 @@ create_trend_chart_enhanced <- function(trend_data, show_total_average = TRUE) {
     )
   )
   
-  # Add total average line if requested
+  # FIXED: Add total average line using add_trace instead of add_hline
   if (show_total_average) {
-    fig <- fig %>% add_hline(
-      y = total_mean,
+    # Create horizontal line data points
+    x_range <- range(trend_data$Period_Order)
+    horizontal_line_data <- data.frame(
+      x = seq(x_range[1], x_range[2], length.out = 2),
+      y = rep(total_mean, 2)
+    )
+    
+    fig <- fig %>% add_trace(
+      data = horizontal_line_data,
+      x = ~x,
+      y = ~y,
+      type = 'scatter',
+      mode = 'lines',
+      name = paste0("Total Average (", round(total_mean, 2), ")"),
       line = list(color = '#FF6B35', width = 2, dash = 'dot'),
-      annotation = list(
-        text = paste0("Total Average: ", round(total_mean, 2)),
-        showarrow = FALSE,
-        x = max(trend_data$Period_Order) * 0.8,
-        y = total_mean + 0.2,
-        font = list(color = '#FF6B35', size = 12),
-        bgcolor = 'rgba(255, 255, 255, 0.8)',
-        bordercolor = '#FF6B35',
-        borderwidth = 1
+      hovertemplate = paste0(
+        '<b>Total Average</b><br>',
+        'Mean across all periods: ', round(total_mean, 2),
+        '<extra></extra>'
       )
     )
   }
   
-  # Configure layout
+  # Enhanced layout configuration
   fig <- fig %>% layout(
     title = list(
-      text = paste0("<b>", trend_data$sub_competency[1], " - Progression vs Period Averages</b>"),
-      font = list(size = 18, family = "Arial", color = "#2c3e50")
+      text = paste("Progression Trends:", trend_data$sub_competency[1]),
+      font = list(size = 18, family = "Arial, sans-serif", color = "#2c3e50"),
+      x = 0.5
     ),
     xaxis = list(
-      title = "Training Progression",
-      tickmode = 'array',
+      title = list(
+        text = "Training Period",
+        font = list(size = 14, family = "Arial, sans-serif", color = "#34495e")
+      ),
       tickvals = trend_data$Period_Order,
       ticktext = trend_data$Period_Label,
       tickangle = -45,
-      gridcolor = 'rgba(128, 128, 128, 0.2)'
+      tickfont = list(size = 12, color = "#34495e", family = "Arial, sans-serif"),
+      gridcolor = 'rgba(52, 73, 94, 0.15)',
+      linecolor = 'rgba(52, 73, 94, 0.2)',
+      zeroline = FALSE
     ),
     yaxis = list(
-      title = "Mean Score",
-      range = c(
-        max(1, min(c(trend_data$mean_score, trend_data$period_specific_mean, if(show_total_average) total_mean else 9)) - 0.5),
-        min(9, max(c(trend_data$mean_score, trend_data$period_specific_mean, if(show_total_average) total_mean else 1)) + 0.5)
+      title = list(
+        text = "Mean Milestone Score",
+        font = list(size = 14, family = "Arial, sans-serif", color = "#34495e")
       ),
-      gridcolor = 'rgba(128, 128, 128, 0.2)'
+      range = c(1, 9),
+      tickmode = 'linear',
+      tick0 = 1,
+      dtick = 1,
+      tickfont = list(size = 12, color = "#34495e", family = "Arial, sans-serif"),
+      gridcolor = 'rgba(52, 73, 94, 0.15)',
+      linecolor = 'rgba(52, 73, 94, 0.2)',
+      zeroline = FALSE
     ),
+    showlegend = TRUE,
     legend = list(
       orientation = "h",
       x = 0.5,
       xanchor = "center",
       y = -0.25,
-      font = list(size = 12)
+      font = list(size = 13, family = "Arial, sans-serif", color = "#2c3e50"),
+      bgcolor = 'rgba(255, 255, 255, 0.9)',
+      bordercolor = 'rgba(52, 73, 94, 0.2)',
+      borderwidth = 1
     ),
-    plot_bgcolor = 'white',
     paper_bgcolor = 'white',
-    margin = list(t = 80, b = 120, l = 60, r = 60),
+    plot_bgcolor = 'rgba(248, 249, 250, 0.8)',
+    margin = list(t = 120, b = 120, l = 80, r = 80),
     hovermode = 'x unified'
-  )
+  ) %>%
+    # Add config for better interactivity
+    plotly::config(
+      displayModeBar = TRUE,
+      displaylogo = FALSE,
+      modeBarButtonsToRemove = c('pan2d', 'select2d', 'lasso2d', 'autoScale2d')
+    )
   
   return(fig)
 }
@@ -610,3 +639,6 @@ get_all_period_choices <- function(data) {
   
   return(choices)
 }
+
+
+

@@ -85,12 +85,12 @@ calculate_period_level_means <- function(data) {
   return(period_means)
 }
 
-#' Create Multi-Level Spider Plot
+#' Create Multi-Level Spider Plot (UPDATED VERSION)
 #'
 #' Creates spider plot allowing multiple PGY level comparisons
 #'
 #' @param data Processed data from load_milestone_csv_data()
-#' @param period_type Period type ("recent_end", "recent_mid", or specific period)
+#' @param period_type Period type ("recent_end", "recent_mid", "all_periods", or specific period)
 #' @param selected_pgy_levels Vector of PGY levels to show
 #' @param show_medians Whether to show overall program means
 #' @return Plotly spider plot
@@ -125,9 +125,11 @@ create_multi_level_spider_plot <- function(data, period_type = "recent_end",
     } else {
       period_title <- "No Mid-Year Data Available"
     }
-  } else if (period_type == "total") {
+  } else if (period_type == "all_periods") {
+    # Don't filter by period - use all data
     period_title <- "All Periods Combined"
   } else {
+    # Specific period
     evaluation_data <- evaluation_data %>% filter(Period == period_type)
     period_title <- period_type
   }
@@ -164,78 +166,102 @@ create_multi_level_spider_plot <- function(data, period_type = "recent_end",
   fig <- plot_ly(type = 'scatterpolar')
   
   # Add traces for each PGY level
-  pgy_levels <- unique(spider_data$PGY_Level)
+  pgy_levels <- sort(unique(spider_data$PGY_Level))
   colors <- c("#2E86AB", "#A23B72", "#F18F01", "#C73E1D", "#592E83", "#048A81")
   
   for (i in seq_along(pgy_levels)) {
     level_data <- spider_data %>% filter(PGY_Level == pgy_levels[i])
     
+    # Create hover text
+    hover_text <- paste0(
+      '<b>', level_data$Sub_Competency, '</b><br>',
+      'PGY Level: ', pgy_levels[i], '<br>',
+      'Mean Score: ', round(level_data$mean_score, 2), '<br>',
+      'Competency: ', level_data$Competency,
+      '<extra></extra>'
+    )
+    
     fig <- fig %>% add_trace(
       r = level_data$mean_score,
       theta = level_data$Sub_Competency,
       name = pgy_levels[i],
-      line = list(color = colors[i %% length(colors) + 1], width = 3),
-      marker = list(color = colors[i %% length(colors) + 1], size = 8),
-      fill = ifelse(i == 1, 'toself', 'none'),
-      fillcolor = paste0('rgba(', paste(col2rgb(colors[i %% length(colors) + 1]), collapse = ','), ', 0.1)'),
-      hovertemplate = paste0(
-        '<b>%{theta}</b><br>',
-        pgy_levels[i], ': %{r}<br>',
-        'Competency: ', level_data$Competency,
-        '<extra></extra>'
-      )
+      line = list(color = colors[((i-1) %% length(colors)) + 1], width = 3),
+      marker = list(color = colors[((i-1) %% length(colors)) + 1], size = 8),
+      fill = ifelse(i == 1, 'toself', 'none'),  # Only fill first trace to avoid overlap
+      fillcolor = paste0('rgba(', paste(col2rgb(colors[((i-1) %% length(colors)) + 1]), collapse = ', '), ', 0.1)'),
+      hovertemplate = hover_text
     )
   }
   
-  # Add overall program means if requested
+  # Add program means if requested
   if (show_medians) {
-    program_means <- data$evaluations %>%
+    program_means <- spider_data %>%
       group_by(Sub_Competency, Competency) %>%
-      summarise(program_mean = mean(Rating, na.rm = TRUE), .groups = "drop") %>%
+      summarise(
+        overall_mean = mean(mean_score, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
       arrange(Competency, Sub_Competency)
     
-    fig <- fig %>% add_trace(
-      r = program_means$program_mean,
-      theta = program_means$Sub_Competency,
-      name = "Program Overall",
-      line = list(color = '#666666', width = 2, dash = 'dash'),
-      marker = list(color = '#666666', size = 6, symbol = 'diamond'),
-      hovertemplate = paste0(
-        '<b>%{theta}</b><br>',
-        'Program Overall: %{r}<br>',
-        'Competency: ', program_means$Competency,
-        '<extra></extra>'
+    if (nrow(program_means) > 0) {
+      fig <- fig %>% add_trace(
+        r = program_means$overall_mean,
+        theta = program_means$Sub_Competency,
+        name = "Program Mean",
+        line = list(color = '#FF6B35', width = 4, dash = 'dot'),
+        marker = list(color = '#FF6B35', size = 10, symbol = 'diamond'),
+        hovertemplate = paste0(
+          '<b>', program_means$Sub_Competency, '</b><br>',
+          'Program Mean: ', round(program_means$overall_mean, 2), '<br>',
+          'Competency: ', program_means$Competency,
+          '<extra></extra>'
+        )
       )
-    )
+    }
   }
   
   # Configure layout
   fig <- fig %>% layout(
+    title = list(
+      text = period_title,
+      font = list(size = 16, family = "Arial, sans-serif", color = "#2c3e50"),
+      x = 0.5
+    ),
     polar = list(
       radialaxis = list(
         visible = TRUE,
         range = c(1, 9),
-        tickmode = 'linear',
-        tick0 = 1,
-        dtick = 1
+        tickmode = 'array',
+        tickvals = c(1, 3, 5, 7, 9),
+        ticktext = c('<b>1</b><br>Novice', '<b>3</b><br>Beginner', 
+                     '<b>5</b><br>Competent', '<b>7</b><br>Proficient', '<b>9</b><br>Expert'),
+        tickfont = list(size = 11, family = "Arial, sans-serif", color = "#2c3e50"),
+        gridcolor = 'rgba(52, 73, 94, 0.2)',
+        linecolor = 'rgba(52, 73, 94, 0.3)'
       ),
       angularaxis = list(
-        tickfont = list(size = 10),
+        tickfont = list(size = 11, family = "Arial, sans-serif", color = "#2c3e50"),
         rotation = 90,
         direction = "clockwise"
       )
     ),
-    title = list(
-      text = paste("Program Performance Comparison -", period_title),
-      font = list(size = 16)
-    ),
+    margin = list(l = 60, r = 60, t = 80, b = 60),
+    paper_bgcolor = 'white',
+    plot_bgcolor = 'rgba(248, 249, 250, 0.5)',
+    showlegend = TRUE,
     legend = list(
       orientation = "h",
       x = 0.5,
       xanchor = "center",
-      y = -0.1
+      y = -0.1,
+      font = list(size = 12, family = "Arial, sans-serif", color = "#2c3e50")
     )
-  )
+  ) %>%
+    plotly::config(
+      displayModeBar = TRUE,
+      displaylogo = FALSE,
+      modeBarButtonsToRemove = c('pan2d', 'select2d', 'lasso2d', 'autoScale2d')
+    )
   
   return(fig)
 }
