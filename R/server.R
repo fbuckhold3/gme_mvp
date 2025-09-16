@@ -25,51 +25,45 @@ server <- function(input, output, session) {
     }
   })
   
-  # Process CSV files
+  # Enhanced CSV processing to populate period choices
   observeEvent(input$process_csv, {
     req(input$csv_files)
     
     tryCatch({
-      # Load the data using your existing function
+      # Load the data using existing function
       data <- load_milestone_csv_data(input$csv_files$datapath)
       milestone_data(data)
       
-      # Debug output
-      cat("Sample rating values:", head(data$evaluations$Rating, 20), "\n")
-      cat("Available PGY levels:", paste(sort(unique(data$evaluations$PGY_Level)), collapse = ", "), "\n")
+      # Update specific period choices
+      periods <- sort(unique(data$evaluations$Period))
+      updateSelectInput(session, "specific_period", 
+                        choices = setNames(periods, periods),
+                        selected = periods[length(periods)])
       
-      # Update period choices for specific period selection
-      periods <- unique(data$evaluations$Period)
-      updateSelectInput(session, "specific_period", choices = setNames(periods, periods))
+      # Update milestone period choices with enhanced options
+      milestone_period_choices <- get_all_period_choices(data)
+      updateSelectInput(session, "milestone_period", 
+                        choices = milestone_period_choices,
+                        selected = "all")
       
-      # Update competency choices
+      # Success notification
+      showNotification("Data loaded successfully!", type = "message", duration = 5)
+      
+      # Update competency choices for other components
       competencies <- unique(data$evaluations$Competency)
       competency_choices <- c("All Competencies" = "all")
       if (length(competencies) > 0) {
         competency_choices <- c(competency_choices, setNames(competencies, competencies))
       }
-      
       updateSelectInput(session, "trend_competency", choices = competency_choices)
-      updateSelectInput(session, "individual_competency", choices = competency_choices)
-      
-      # Update individual period choices
-      individual_period_choices <- c("Total (All Periods)" = "total")
-      if (length(periods) > 0) {
-        individual_period_choices <- c(individual_period_choices, setNames(periods, periods))
-      }
-      updateSelectInput(session, "individual_period", choices = individual_period_choices)
-      
-      # Update resident choices
-      residents <- sort(unique(data$evaluations$Resident_Name))
-      updateSelectInput(session, "selected_resident", choices = residents)
-      
-      cat("UI updates completed successfully!\n")
       
     }, error = function(e) {
-      showNotification(paste("Error processing data:", e$message), type = "error")
-      cat("Error:", e$message, "\n")
+      showNotification(paste("Error loading data:", e$message), type = "error", duration = 10)
+      print(paste("CSV processing error:", e$message))
     })
   })
+  
+  
   
   # Generate PGY checkboxes dynamically
   output$pgy_checkboxes <- renderUI({
@@ -119,20 +113,180 @@ server <- function(input, output, session) {
     }
   })
   
-  # Helper function to get current period selection
+
+  # Get current period selection for analysis
   get_current_period <- reactive({
-    if (input$period_selection == "recent_end") {
-      return("recent_end")
-    } else if (input$period_selection == "recent_mid") {
-      return("recent_mid")
-    } else if (input$period_selection == "all_periods") {
-      return("total")
-    } else if (input$period_selection == "specific") {
-      return(input$specific_period)
-    } else {
-      return("recent_end")
+    req(input$period_selection)
+    
+    switch(input$period_selection,
+           "specific" = input$specific_period,
+           "recent_end" = "recent_end",
+           "recent_mid" = "recent_mid", 
+           "all_periods" = "total",  # CHANGED: was "all_periods", should be "total"
+           "recent_end")  # default fallback
+  })
+  
+  # Get all available periods from loaded data
+  get_available_periods <- reactive({
+    req(milestone_data())
+    periods <- sort(unique(milestone_data()$evaluations$Period))
+    return(periods)
+  })
+  
+  # Enhanced graduation readiness data with period breakdown option
+  graduation_readiness_data <- reactive({
+    req(milestone_data(), input$milestone_threshold)
+    
+    calculate_graduation_readiness_enhanced(
+      data = milestone_data(),
+      threshold = input$milestone_threshold,
+      period_filter = input$milestone_period,
+      competency_filter = input$milestone_competency,
+      show_by_period = isTRUE(input$graduation_by_period)
+    )
+  })
+  
+  # Enhanced all levels readiness data with PGY selection
+  all_levels_data <- reactive({
+    req(milestone_data(), input$milestone_threshold)
+    
+    # Get selected PGY levels, default to all if none selected
+    selected_pgy <- input$all_levels_pgy
+    if (is.null(selected_pgy) || length(selected_pgy) == 0) {
+      selected_pgy <- sort(unique(milestone_data()$evaluations$PGY_Level))
+    }
+    
+    calculate_all_levels_readiness_enhanced(
+      data = milestone_data(),
+      threshold = input$milestone_threshold,
+      period_filter = input$milestone_period,
+      competency_filter = input$milestone_competency,
+      selected_pgy_levels = selected_pgy
+    )
+  })
+  
+  # Enhanced trend data with period-specific comparisons
+  trend_data <- reactive({
+    req(milestone_data(), input$trend_subcompetency, input$milestone_threshold)
+    
+    if (is.null(input$trend_subcompetency) || input$trend_subcompetency == "") {
+      return(data.frame())
+    }
+    
+    # Get selected periods for trend analysis
+    selected_periods <- NULL
+    if (!is.null(input$trend_selected_periods) && length(input$trend_selected_periods) > 0) {
+      selected_periods <- input$trend_selected_periods
+    }
+    
+    calculate_subcompetency_trends_enhanced(
+      data = milestone_data(),
+      sub_competency = input$trend_subcompetency,
+      threshold = input$milestone_threshold,
+      selected_periods = selected_periods
+    )
+  })
+  
+  # 3. ADD: New reactive for available periods for trend selection
+  available_trend_periods <- reactive({
+    req(milestone_data())
+    
+    periods <- milestone_data()$evaluations %>%
+      pull(Period) %>%
+      unique() %>%
+      sort()
+    
+    return(periods)
+  })
+  
+  # 4. ADD: Generate period checkboxes for trend analysis
+  output$trend_period_checkboxes <- renderUI({
+    req(milestone_data())
+    
+    periods <- available_trend_periods()
+    
+    # Create checkbox list
+    checkbox_list <- lapply(periods, function(period) {
+      checkboxInput(
+        paste0("trend_period_", make.names(period)), 
+        label = period,
+        value = TRUE  # Default all to selected
+      )
+    })
+    
+    div(
+      h5("Select Periods to Include:"),
+      div(checkbox_list, style = "max-height: 200px; overflow-y: auto;"),
+      br(),
+      actionButton("select_all_trend_periods", "Select All", size = "sm", style = "margin-right: 10px;"),
+      actionButton("deselect_all_trend_periods", "Deselect All", size = "sm")
+    )
+  })
+  
+  # 5. ADD: Observer for select/deselect all trend periods
+  observeEvent(input$select_all_trend_periods, {
+    periods <- available_trend_periods()
+    for (period in periods) {
+      checkbox_id <- paste0("trend_period_", make.names(period))
+      updateCheckboxInput(session, checkbox_id, value = TRUE)
     }
   })
+  
+  observeEvent(input$deselect_all_trend_periods, {
+    periods <- available_trend_periods()
+    for (period in periods) {
+      checkbox_id <- paste0("trend_period_", make.names(period))
+      updateCheckboxInput(session, checkbox_id, value = FALSE)
+    }
+  })
+  
+  # 6. ADD: Reactive to get selected trend periods
+  selected_trend_periods <- reactive({
+    req(milestone_data())
+    
+    periods <- available_trend_periods()
+    selected <- c()
+    
+    for (period in periods) {
+      checkbox_id <- paste0("trend_period_", make.names(period))
+      checkbox_value <- input[[checkbox_id]]
+      
+      if (!is.null(checkbox_value) && isTRUE(checkbox_value)) {
+        selected <- c(selected, period)
+      }
+    }
+    
+    return(selected)
+  })
+  
+  
+  # Update competency and sub-competency choices when data loads
+  observeEvent(milestone_data(), {
+    req(milestone_data())
+    
+    # Update competency choices
+    competencies <- unique(milestone_data()$evaluations$Competency)
+    competency_choices <- c("All Competencies" = "all")
+    if (length(competencies) > 0) {
+      competency_choices <- c(competency_choices, setNames(competencies, competencies))
+    }
+    updateSelectInput(session, "milestone_competency", choices = competency_choices)
+    
+    # Update sub-competency choices for trend analysis
+    subcompetencies <- sort(unique(milestone_data()$evaluations$Sub_Competency))
+    subcomp_choices <- c("Select sub-competency..." = "")
+    if (length(subcompetencies) > 0) {
+      subcomp_choices <- c(subcomp_choices, setNames(subcompetencies, subcompetencies))
+    }
+    updateSelectInput(session, "trend_subcompetency", choices = subcomp_choices)
+    
+    # Update PGY level choices for all levels analysis
+    pgy_levels <- sort(unique(milestone_data()$evaluations$PGY_Level))
+    updateCheckboxGroupInput(session, "all_levels_pgy", 
+                             choices = setNames(pgy_levels, pgy_levels),
+                             selected = pgy_levels)  # Default all selected
+  })
+  
   
   # Helper function to parse individual period filter
   parse_individual_period <- function(period_filter) {
@@ -147,6 +301,41 @@ server <- function(input, output, session) {
       return(list(period = period_filter, level = "all"))
     }
   }
+  
+  # Get selected periods for spider plot (for multi-period comparison)
+  get_spider_periods <- reactive({
+    req(milestone_data())
+    
+    # If not in specific mode or multi-period not enabled, return single period
+    if (is.null(input$period_selection) || 
+        input$period_selection != "specific" || 
+        is.null(input$spider_multi_period) || 
+        !isTRUE(input$spider_multi_period)) {
+      return(get_current_period())
+    }
+    
+    # Get selected periods from checkboxes with NULL checks
+    periods <- get_available_periods()
+    selected_periods <- c()
+    
+    for (period in periods) {
+      checkbox_id <- paste0("spider_period_", make.names(period))
+      checkbox_value <- input[[checkbox_id]]
+      
+      # Only include if checkbox exists and is TRUE
+      if (!is.null(checkbox_value) && isTRUE(checkbox_value)) {
+        selected_periods <- c(selected_periods, period)
+      }
+    }
+    
+    # If no periods selected, fall back to current period
+    if (length(selected_periods) == 0) {
+      return(get_current_period())
+    }
+    
+    return(selected_periods)
+  })
+  
   
   # Status text
   output$status_text <- renderText({
@@ -277,55 +466,412 @@ server <- function(input, output, session) {
     }
   })
   
-  # Program spider plot (updated to use new controls)
+  # Generate period checkboxes for spider plot multi-period selection
+  output$spider_period_checkboxes <- renderUI({
+    req(milestone_data(), input$spider_multi_period)
+    
+    periods <- get_available_periods()
+    
+    # Create checkbox list
+    checkbox_list <- lapply(periods, function(period) {
+      checkboxInput(
+        paste0("spider_period_", make.names(period)), 
+        label = period,
+        value = TRUE  # Default all to selected
+      )
+    })
+    
+    div(checkbox_list)
+  })
+  
+  # Enhanced period display info
+  output$period_display_info <- renderUI({
+    req(milestone_data(), input$period_selection)
+    
+    if (input$period_selection == "specific" && isTRUE(input$spider_multi_period)) {
+      spider_periods <- get_spider_periods()
+      if (length(spider_periods) > 1) {
+        period_text <- paste("Comparing:", paste(spider_periods, collapse = ", "))
+      } else {
+        period_text <- paste("Period:", spider_periods[1])
+      }
+    } else {
+      period_text <- switch(input$period_selection,
+                            "specific" = paste("Specific Period:", input$specific_period),
+                            "recent_end" = "Most Recent End-Year",
+                            "recent_mid" = "Most Recent Mid-Year", 
+                            "all_periods" = "All Periods Combined")
+    }
+    
+    pgy_text <- if (length(selected_pgy_levels()) == length(sort(unique(milestone_data()$evaluations$PGY_Level)))) {
+      "All PGY Levels"
+    } else {
+      paste("PGY Levels:", paste(selected_pgy_levels(), collapse = ", "))
+    }
+    
+    HTML(paste0("<small><strong>Analysis Based On:</strong> ", period_text, " • ", pgy_text, "</small>"))
+  })
+  
+  
+  # Enhanced program spider plot with multi-period support
+  # Enhanced program spider plot with multi-period support
   output$program_spider <- renderPlotly({
     req(milestone_data(), selected_pgy_levels())
     
-    tryCatch({
-      create_multi_level_spider_plot(
+    spider_periods <- get_spider_periods()
+    
+    if (length(spider_periods) == 1) {
+      # Single period - use existing function
+      create_multi_level_spider_plot(  # <-- This function exists
         milestone_data(),
-        period_type = get_current_period(),
+        period_type = spider_periods[1],
         selected_pgy_levels = selected_pgy_levels(),
         show_medians = input$show_program_means
       )
+    } else {
+      # Multiple periods - use new multi-period function
+      create_multi_period_spider_plot(  # <-- This function does NOT exist
+        milestone_data(),
+        period_types = spider_periods,
+        selected_pgy_levels = selected_pgy_levels(),
+        show_medians = input$show_program_means
+      )
+    }
+  })
+  
+  # =========================================================================
+  # MILESTONE ANALYSIS
+  # ========================================================================= 
+  
+  # =========================================================================
+  # MILESTONE ANALYSIS OUTPUTS - CHARTS
+  # =========================================================================
+  
+  # Enhanced graduation readiness chart
+  output$graduation_readiness_chart <- renderPlotly({
+    req(graduation_readiness_data())
+    
+    tryCatch({
+      # Use appropriate chart based on whether breaking down by period
+      if (isTRUE(input$graduation_by_period) && input$milestone_period == "all") {
+        # Create period-breakdown chart - modify existing chart for period breakdown
+        readiness_data <- graduation_readiness_data()
+        
+        # Create a modified chart that groups by period
+        fig <- plot_ly(readiness_data)
+        
+        periods <- unique(readiness_data$Period)
+        colors <- c("#4CAF50", "#8BC34A", "#FF9800", "#F44336")
+        names(colors) <- c("Excellent (<2.5%)", "Good (2.5-5%)", "Concerning (5-7.5%)", "High Risk (>7.5%)")
+        
+        for (i in seq_along(periods)) {
+          period_data <- readiness_data %>% filter(Period == periods[i])
+          
+          fig <- fig %>% add_trace(
+            y = ~reorder(competency_period, percent_below_threshold),
+            x = ~percent_below_threshold,
+            type = 'bar',
+            orientation = 'h',
+            name = periods[i],
+            data = period_data,
+            marker = list(color = colors[period_data$readiness_category]),
+            hovertemplate = paste0(
+              '<b>', period_data$Sub_Competency, '</b><br>',
+              'Period: ', period_data$Period, '<br>',
+              'Below Threshold: ', round(period_data$percent_below_threshold, 1), '%<br>',
+              'Risk Level: ', period_data$readiness_category,
+              '<extra></extra>'
+            )
+          )
+        }
+        
+        fig <- fig %>% layout(
+          title = list(
+            text = paste0("<b>Graduation Readiness by Period - ", readiness_data$graduating_class[1], "</b>"),
+            font = list(size = 16)
+          ),
+          xaxis = list(title = "Percentage Below Threshold (%)"),
+          yaxis = list(title = "Sub-Competency by Period"),
+          barmode = 'group',
+          margin = list(l = 150, b = 100)
+        )
+        
+        fig
+      } else {
+        # Use standard graduation chart
+        create_graduation_readiness_chart(graduation_readiness_data())
+      }
     }, error = function(e) {
       plot_ly() %>% 
-        add_annotations(text = paste("Error:", e$message), 
-                        x = 0.5, y = 0.5, showarrow = FALSE)
+        add_annotations(
+          text = paste("Error creating graduation chart:", e$message), 
+          x = 0.5, y = 0.5, 
+          showarrow = FALSE,
+          font = list(size = 16, color = "red")
+        )
     })
   })
   
-  # Program trend lines
-  output$program_trends <- renderPlotly({
-    req(milestone_data())
+  # Enhanced all levels chart
+  output$all_levels_chart <- renderPlotly({
+    req(all_levels_data())
     
     tryCatch({
-      create_sequential_trend_plot(
-        milestone_data(),
-        competency_filter = input$trend_competency
-      )
+      # Use the enhanced create function (need to create this)
+      create_all_levels_chart(all_levels_data())
     }, error = function(e) {
       plot_ly() %>% 
-        add_annotations(text = paste("Error:", e$message), 
-                        x = 0.5, y = 0.5, showarrow = FALSE)
+        add_annotations(
+          text = paste("Error creating all levels chart:", e$message), 
+          x = 0.5, y = 0.5, 
+          showarrow = FALSE,
+          font = list(size = 16, color = "red")
+        )
     })
   })
   
-  # Program heatmap
-  output$program_heatmap <- renderPlotly({
-    req(milestone_data())
+  # Enhanced sub-competency trend chart
+  output$subcompetency_trend_chart <- renderPlotly({
+    req(trend_data())
+    
+    if (nrow(trend_data()) == 0) {
+      return(plot_ly() %>% 
+               add_annotations(
+                 text = "No trend data available for selected sub-competency", 
+                 x = 0.5, y = 0.5, 
+                 showarrow = FALSE,
+                 font = list(size = 14, color = "#666")
+               ))
+    }
     
     tryCatch({
-      create_performance_heatmap(
-        milestone_data(),
-        metric = input$heatmap_metric,
-        sortable = TRUE
-      )
+      # Get selected periods for filtering
+      selected_periods <- selected_trend_periods()
+      
+      # Filter trend data if specific periods are selected
+      filtered_trend_data <- trend_data()
+      if (length(selected_periods) > 0 && length(selected_periods) < length(available_trend_periods())) {
+        filtered_trend_data <- trend_data() %>%
+          filter(Period %in% selected_periods)
+      }
+      
+      if (nrow(filtered_trend_data) == 0) {
+        return(plot_ly() %>% 
+                 add_annotations(
+                   text = "No data available for selected periods", 
+                   x = 0.5, y = 0.5, 
+                   showarrow = FALSE,
+                   font = list(size = 14, color = "#666")
+                 ))
+      }
+      
+      # Create chart with option to show/hide total average
+      show_total <- if(is.null(input$show_total_average)) TRUE else input$show_total_average
+      create_trend_chart_enhanced(filtered_trend_data, show_total_average = show_total)
+      
     }, error = function(e) {
       plot_ly() %>% 
-        add_annotations(text = paste("Error:", e$message), 
-                        x = 0.5, y = 0.5, showarrow = FALSE)
+        add_annotations(
+          text = paste("Error creating trend chart:", e$message), 
+          x = 0.5, y = 0.5, 
+          showarrow = FALSE,
+          font = list(size = 16, color = "red")
+        )
     })
+  })
+  
+  
+
+  
+  # =========================================================================
+  # MILESTONE ANALYSIS OUTPUTS - TABLES
+  # =========================================================================
+  
+  output$graduation_table <- DT::renderDataTable({
+    req(graduation_readiness_data())
+    
+    tryCatch({
+      table_data <- graduation_readiness_data()
+      
+      if ("Period" %in% names(table_data)) {
+        # Period breakdown table
+        table_data %>%
+          select(
+            `Sub-Competency` = Sub_Competency,
+            `Period` = Period,
+            `Competency` = Competency,
+            `% Below Threshold` = percent_below_threshold,
+            `Risk Level` = readiness_category,
+            `Mean Score` = mean_score,
+            `Residents` = total_residents,
+            `Evaluations` = total_evaluations
+          ) %>%
+          mutate(
+            `% Below Threshold` = round(`% Below Threshold`, 2),
+            `Mean Score` = round(`Mean Score`, 2)
+          )
+      } else {
+        # Standard table
+        table_data %>%
+          select(
+            `Sub-Competency` = Sub_Competency,
+            `Competency` = Competency,
+            `% Below Threshold` = percent_below_threshold,
+            `Risk Level` = readiness_category,
+            `Mean Score` = mean_score,
+            `Residents` = total_residents,
+            `Evaluations` = total_evaluations,
+            `Below Count` = below_threshold
+          ) %>%
+          mutate(
+            `% Below Threshold` = round(`% Below Threshold`, 2),
+            `Mean Score` = round(`Mean Score`, 2)
+          )
+      }
+    }, error = function(e) {
+      data.frame(
+        Error = paste("Error creating graduation table:", e$message)
+      )
+    })
+  }, options = list(
+    pageLength = 15,
+    scrollX = TRUE,
+    order = list(list(2, 'desc')),
+    columnDefs = list(
+      list(className = 'dt-center', targets = c(2, 4, 5, 6, 7))
+    )
+  ))
+  
+  # Enhanced all levels table
+  output$all_levels_table <- DT::renderDataTable({
+    req(all_levels_data())
+    
+    tryCatch({
+      all_levels_data() %>%
+        select(
+          `Sub-Competency` = Sub_Competency,
+          `PGY Level` = PGY_Level,
+          `Competency` = Competency,
+          `% Below Threshold` = percent_below_threshold,
+          `Risk Level` = readiness_category,
+          `Mean Score` = mean_score,
+          `Residents` = total_residents,
+          `Evaluations` = total_evaluations
+        ) %>%
+        mutate(
+          `% Below Threshold` = round(`% Below Threshold`, 2),
+          `Mean Score` = round(`Mean Score`, 2)
+        )
+    }, error = function(e) {
+      data.frame(
+        Error = paste("Error creating all levels table:", e$message)
+      )
+    })
+  }, options = list(
+    pageLength = 15,
+    scrollX = TRUE,
+    order = list(list(1, 'asc'), list(3, 'desc')),
+    columnDefs = list(
+      list(className = 'dt-center', targets = c(1, 3, 5, 6, 7))
+    )
+  ))
+  
+  # Enhanced trend data table  
+  output$trend_data_table <- DT::renderDataTable({
+    req(trend_data())
+    
+    if (nrow(trend_data()) == 0) {
+      return(data.frame(
+        Message = "No trend data available for selected sub-competency"
+      ))
+    }
+    
+    tryCatch({
+      # Get selected periods for filtering
+      selected_periods <- selected_trend_periods()
+      
+      # Filter trend data if specific periods are selected
+      filtered_trend_data <- trend_data()
+      if (length(selected_periods) > 0 && length(selected_periods) < length(available_trend_periods())) {
+        filtered_trend_data <- trend_data() %>%
+          filter(Period %in% selected_periods)
+      }
+      
+      if (nrow(filtered_trend_data) == 0) {
+        return(data.frame(
+          Message = "No data available for selected periods"
+        ))
+      }
+      
+      filtered_trend_data %>%
+        select(
+          `Period` = Full_Period_Label,
+          `Training Stage` = Period_Label,
+          `PGY Level` = PGY_Level,
+          `Mean Score` = mean_score,
+          `Period Average` = period_specific_mean,
+          `Difference` = paste0(ifelse(mean_score >= period_specific_mean, "+", ""), 
+                                round(mean_score - period_specific_mean, 2)),
+          `% Below Threshold` = percent_below_threshold,
+          `Residents` = total_residents,
+          `Evaluations` = total_evaluations
+        ) %>%
+        mutate(
+          `Mean Score` = round(`Mean Score`, 2),
+          `Period Average` = round(`Period Average`, 2),
+          `% Below Threshold` = round(`% Below Threshold`, 1)
+        )
+    }, error = function(e) {
+      data.frame(
+        Error = paste("Error creating trend table:", e$message)
+      )
+    })
+  }, options = list(
+    pageLength = 10,
+    scrollX = TRUE,
+    order = list(list(0, 'asc')),
+    columnDefs = list(
+      list(className = 'dt-center', targets = c(3, 4, 5, 6, 7, 8)),
+      list(width = '20%', targets = 0),
+      list(width = '15%', targets = 1)
+    )
+  ))
+  
+
+  
+  # =========================================================================
+  # DEBUG OUTPUT (OPTIONAL - REMOVE IN PRODUCTION)
+  # =========================================================================
+  
+  # Add debug output to console to help with troubleshooting
+  observe({
+    if (!is.null(milestone_data()) && !is.null(input$milestone_threshold)) {
+      
+      # Find max PGY for graduation analysis
+      max_pgy <- milestone_data()$evaluations %>%
+        pull(PGY_Level) %>%
+        str_extract("\\d+") %>%
+        as.numeric() %>%
+        max(na.rm = TRUE)
+      
+      cat("\n=== MILESTONE ANALYSIS DEBUG ===\n")
+      cat("Threshold:", input$milestone_threshold, "\n")
+      cat("Max PGY Level (Graduating Class):", paste0("PGY-", max_pgy), "\n")
+      cat("Available Sub-Competencies:", paste(sort(unique(milestone_data()$evaluations$Sub_Competency)), collapse = ", "), "\n")
+      cat("Selected Sub-Competency for Trends:", ifelse(is.null(input$trend_subcompetency) || input$trend_subcompetency == "", "None", input$trend_subcompetency), "\n")
+      
+      if (!is.null(graduation_readiness_data()) && nrow(graduation_readiness_data()) > 0) {
+        cat("Graduation Data Rows:", nrow(graduation_readiness_data()), "\n")
+        cat("Risk Distribution:", table(graduation_readiness_data()$readiness_category), "\n")
+      }
+      
+      if (!is.null(all_levels_data()) && nrow(all_levels_data()) > 0) {
+        cat("All Levels Data Rows:", nrow(all_levels_data()), "\n")
+        cat("PGY Levels in Analysis:", paste(sort(unique(all_levels_data()$PGY_Level)), collapse = ", "), "\n")
+      }
+      
+      cat("================================\n")
+    }
   })
   
   # =========================================================================

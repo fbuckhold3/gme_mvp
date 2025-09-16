@@ -688,3 +688,171 @@ identify_strength_areas_filtered <- function(data, n_items = 5, period_selection
   
   return(strength_areas)
 }
+
+# ===================================================================
+# COMPLETE create_multi_level_spider_plot Function
+# Add this to your R/program_visualization_enhanced.R file
+# ===================================================================
+
+#' Create Multi-Level Spider Plot
+#'
+#' Creates spider plot allowing multiple PGY level comparisons
+#'
+#' @param data Processed data from load_milestone_csv_data()
+#' @param period_type Period type ("recent_end", "recent_mid", "all_periods", or specific period)
+#' @param selected_pgy_levels Vector of PGY levels to show
+#' @param show_medians Whether to show overall program means
+#' @return Plotly spider plot
+create_multi_level_spider_plot <- function(data, period_type = "recent_end", 
+                                           selected_pgy_levels = NULL, show_medians = TRUE) {
+  evaluation_data <- data$evaluations
+  
+  # Handle period selection
+  if (period_type == "recent_end") {
+    recent_period <- evaluation_data %>%
+      filter(str_detect(Period, "Year-End|End-Year")) %>%
+      arrange(desc(Period)) %>%
+      pull(Period) %>%
+      head(1)
+    
+    if (length(recent_period) > 0) {
+      evaluation_data <- evaluation_data %>% filter(Period == recent_period)
+      period_title <- paste("Most Recent End-Year (", recent_period, ")")
+    } else {
+      period_title <- "No End-Year Data Available"
+    }
+  } else if (period_type == "recent_mid") {
+    recent_period <- evaluation_data %>%
+      filter(str_detect(Period, "Mid-Year")) %>%
+      arrange(desc(Period)) %>%
+      pull(Period) %>%
+      head(1)
+    
+    if (length(recent_period) > 0) {
+      evaluation_data <- evaluation_data %>% filter(Period == recent_period)
+      period_title <- paste("Most Recent Mid-Year (", recent_period, ")")
+    } else {
+      period_title <- "No Mid-Year Data Available"
+    }
+  } else if (period_type == "all_periods") {
+    period_title <- "All Periods Combined"
+  } else {
+    # Specific period
+    evaluation_data <- evaluation_data %>% filter(Period == period_type)
+    period_title <- period_type
+  }
+  
+  # Filter by selected PGY levels
+  if (!is.null(selected_pgy_levels) && length(selected_pgy_levels) > 0) {
+    evaluation_data <- evaluation_data %>% filter(PGY_Level %in% selected_pgy_levels)
+  }
+  
+  if (nrow(evaluation_data) == 0) {
+    return(plotly::plot_ly() %>% 
+             plotly::add_annotations(text = "No data available for selected filters", 
+                                     x = 0.5, y = 0.5, showarrow = FALSE))
+  }
+  
+  # Calculate means by PGY level and sub-competency
+  spider_data <- evaluation_data %>%
+    group_by(PGY_Level, Sub_Competency, Competency) %>%
+    summarise(
+      mean_score = mean(Rating, na.rm = TRUE),
+      n_evaluations = n(),
+      .groups = "drop"
+    ) %>%
+    filter(n_evaluations >= 3) %>%
+    arrange(Competency, Sub_Competency)
+  
+  if (nrow(spider_data) == 0) {
+    return(plotly::plot_ly() %>% 
+             plotly::add_annotations(text = "Insufficient data for visualization", 
+                                     x = 0.5, y = 0.5, showarrow = FALSE))
+  }
+  
+  # Create the spider plot
+  fig <- plot_ly(type = 'scatterpolar')
+  
+  # Add traces for each PGY level
+  pgy_levels <- unique(spider_data$PGY_Level)
+  colors <- c("#2E86AB", "#A23B72", "#F18F01", "#C73E1D", "#592E83", "#048A81")
+  
+  for (i in seq_along(pgy_levels)) {
+    level_data <- spider_data %>% filter(PGY_Level == pgy_levels[i])
+    
+    # Create hover text
+    hover_text <- paste0(
+      '<b>', level_data$Sub_Competency, '</b><br>',
+      '<b>PGY Level:</b> ', pgy_levels[i], '<br>',
+      '<b>Mean Score:</b> ', round(level_data$mean_score, 2), '<br>',
+      'Competency: ', level_data$Competency, '<br>',
+      'N Evaluations: ', level_data$n_evaluations,
+      '<extra></extra>'
+    )
+    
+    fig <- fig %>% add_trace(
+      r = level_data$mean_score,
+      theta = level_data$Sub_Competency,
+      name = pgy_levels[i],
+      type = 'scatterpolar',
+      mode = 'lines+markers',  # EXPLICITLY SET MODE
+      line = list(color = colors[i %% length(colors) + 1], width = 3),
+      marker = list(color = colors[i %% length(colors) + 1], size = 6),
+      fill = ifelse(i == 1, 'toself', 'none'),
+      fillcolor = if (i == 1) paste0(substr(colors[i %% length(colors) + 1], 1, 7), "20") else NULL,
+      hovertemplate = hover_text
+    )
+  }
+  
+  # Configure the plot layout
+  fig <- fig %>% layout(
+    title = list(
+      text = paste0("<b>", period_title, "</b>"),
+      font = list(size = 18, family = "Arial, sans-serif", color = "#2c3e50"),
+      x = 0.5,
+      y = 0.95
+    ),
+    polar = list(
+      radialaxis = list(
+        visible = TRUE,
+        range = c(0, 9),
+        tickmode = 'array',
+        tickvals = c(1, 3, 5, 7, 9),
+        ticktext = c('<b>1</b><br>Beginner', '<b>3</b><br>Low Advanced Beginner', 
+                     '<b>5</b><br>Competent', '<b>7</b><br>Proficient', '<b>9</b><br>Expert'),
+        tickfont = list(size = 12, color = "#34495e", family = "Arial, sans-serif"),
+        gridcolor = 'rgba(52, 73, 94, 0.15)',
+        linecolor = 'rgba(52, 73, 94, 0.2)',
+        zeroline = FALSE
+      ),
+      angularaxis = list(
+        tickfont = list(size = 11, family = "Arial, sans-serif", color = "#2c3e50"),
+        linecolor = 'rgba(52, 73, 94, 0.3)',
+        gridcolor = 'rgba(52, 73, 94, 0.15)'
+      )
+    ),
+    showlegend = TRUE,
+    legend = list(
+      orientation = "h",
+      x = 0.5,
+      xanchor = "center",
+      y = -0.25,
+      font = list(size = 13, family = "Arial, sans-serif", color = "#2c3e50"),
+      bgcolor = 'rgba(255, 255, 255, 0.9)',
+      bordercolor = 'rgba(52, 73, 94, 0.2)',
+      borderwidth = 1
+    ),
+    paper_bgcolor = 'white',
+    plot_bgcolor = 'rgba(248, 249, 250, 0.8)',
+    margin = list(t = 120, b = 120, l = 80, r = 80),
+    hovermode = 'x unified'
+  ) %>%
+    # Add config for better interactivity
+    plotly::config(
+      displayModeBar = TRUE,
+      displaylogo = FALSE,
+      modeBarButtonsToRemove = c('pan2d', 'select2d', 'lasso2d', 'autoScale2d')
+    )
+  
+  return(fig)
+}
