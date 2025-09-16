@@ -1,40 +1,28 @@
+# =============================================================================
+# R/ui.R - User Interface
+# =============================================================================
+
 ui <- page_fluid(
-  # Theme configuration
-  theme = bs_theme(
-    version = 5,
-    primary = "#2C3E50",
-    secondary = "#3498DB", 
-    success = "#27AE60",
-    warning = "#F39C12",
-    danger = "#E74C3C",
-    info = "#17A2B8",
-    "bg-body" = "#F8F9FA",
-    "card-bg" = "#FFFFFF",
-    "font-size-base" = "0.95rem"
-  ),
-  
+  theme = bs_theme(version = 5, primary = "#2C3E50"),
   title = "GME Milestone Visualization Platform",
   
   # Header
   div(class = "gmed-header",
       style = "background: linear-gradient(90deg, #2C3E50 0%, #3498DB 100%); color: white; padding: 20px; margin-bottom: 20px;",
       h1("GME Milestone Visualization Platform", style = "margin: 0; font-weight: 300; font-size: 2.5rem;"),
-      p("ACGME Milestone Analysis from CSV Data", 
-        style = "margin: 5px 0 0 0; opacity: 0.9; font-size: 1.1rem;")
+      uiOutput("program_subtitle")
   ),
   
-  # Main navigation
+  # Main content
   navset_card_tab(
     id = "main_tabs",
     
-    # ======================================================================
-    # DATA UPLOAD TAB
-    # ======================================================================
+    # Data Upload Tab
     nav_panel("Data Upload",
               icon = icon("upload"),
               
               fluidRow(
-                column(8,
+                column(6,
                        div(class = "card",
                            div(class = "card-header",
                                h4(icon("file-csv"), "Upload ACGME Milestone Data")
@@ -45,206 +33,273 @@ ui <- page_fluid(
                                          multiple = TRUE,
                                          accept = c(".csv")),
                                
-                               div(style = "margin-top: 15px;",
-                                   actionButton("process_csv", "Process Data", 
-                                                class = "btn-primary btn-lg"),
-                                   uiOutput("csv_status", inline = TRUE, style = "margin-left: 15px;")
-                               ),
+                               actionButton("process_csv", "Process Data", 
+                                            class = "btn-primary btn-lg"),
                                
-                               conditionalPanel(
-                                 condition = "output.data_loaded == true",
-                                 div(class = "alert alert-success mt-3",
-                                     icon("check-circle"), " Data loaded successfully! ",
-                                     textOutput("data_summary", inline = TRUE))
-                               )
+                               br(), br(),
+                               
+                               verbatimTextOutput("status_text")
                            )
                        )
                 ),
                 
-                column(4,
+                column(6,
                        div(class = "card",
-                           div(class = "card-header",
-                               h5("Expected CSV Format")
-                           ),
+                           div(class = "card-header", h5("Summary")),
                            div(class = "card-body",
-                               tags$p("Your CSV should contain ACGME milestone evaluation data with these key columns:"),
-                               tags$ul(
-                                 tags$li(tags$strong("Resident ID"), " - Unique identifier"),
-                                 tags$li(tags$strong("First Name, Last Name"), " - Resident names"),
-                                 tags$li(tags$strong("Resident Year"), " - Training level"),
-                                 tags$li(tags$strong("Question Key"), " - Milestone identifier"),
-                                 tags$li(tags$strong("Report Category"), " - Competency area"),
-                                 tags$li(tags$strong("Int Response Value"), " - Numeric score (1-9)"),
-                                 tags$li(tags$strong("Schedule Window Description"), " - Assessment period")
-                               ),
-                               
-                               tags$hr(),
-                               tags$small("Uses your existing gmed package functions for processing.",
-                                          class = "text-muted")
+                               htmlOutput("quick_summary")
                            )
                        )
                 )
               )
     ),
     
-    # ======================================================================
-    # PROGRAM OVERVIEW TAB
-    # ======================================================================
+    # Program Overview Tab
     nav_panel("Program Overview",
-              icon = icon("chart-bar"),
+              icon = icon("chart-line"),
               
-              # Controls row
-              fluidRow(
-                column(3,
-                       selectInput("program_period", "Assessment Period:",
-                                   choices = c("Total (All Periods)" = "total"), 
-                                   selected = "total")
-                ),
-                column(3,
-                       selectInput("program_level", "Training Year:",
-                                   choices = c("All Years" = "all"),
-                                   selected = "all")
-                ),
-                column(6,
-                       conditionalPanel(
-                         condition = "output.data_loaded != true",
-                         div(class = "alert alert-warning",
-                             icon("exclamation-triangle"), " Please upload CSV data first")
-                       )
+              conditionalPanel(
+                condition = "output.data_loaded",
+                
+                fluidRow(
+                  # Left sidebar with controls
+                  column(3,
+                         div(class = "card",
+                             div(class = "card-header", h5("Analysis Controls")),
+                             div(class = "card-body",
+                                 
+                                 # Assessment Period Selection
+                                 h6("Assessment Period:", style = "font-weight: bold; margin-top: 10px;"),
+                                 radioButtons("period_selection", "",
+                                              choices = list(
+                                                "Most Recent End-Year" = "recent_end",
+                                                "Most Recent Mid-Year" = "recent_mid", 
+                                                "All Periods Combined" = "all_periods"
+                                              ),
+                                              selected = "recent_end"),
+                                 
+                                 conditionalPanel(
+                                   condition = "input.period_selection == 'specific'",
+                                   selectInput("specific_period", "Choose Period:",
+                                               choices = NULL)
+                                 ),
+                                 
+                                 hr(),
+                                 
+                                 # PGY Level Selection
+                                 h6("PGY Levels to Include:", style = "font-weight: bold; margin-top: 10px;"),
+                                 checkboxInput("select_all_pgy", "Select All", value = TRUE),
+                                 uiOutput("pgy_checkboxes"),
+                                 
+                                 hr(),
+                                 
+                                 # Display Options
+                                 h6("Display Options:", style = "font-weight: bold; margin-top: 10px;"),
+                                 checkboxInput("show_program_means", "Show Program Means", value = TRUE),
+                                 checkboxInput("tables_use_filters", "Apply Filters to Tables", value = TRUE),
+                                 
+                                 br(),
+                                 
+                                 # Quick info
+                                 div(class = "alert alert-info", style = "font-size: 0.85em;",
+                                     HTML("<strong>Info:</strong><br>
+                                          • Tables show End-Year data by default<br>
+                                          • Check 'Apply Filters to Tables' to use period/level selections<br>
+                                          • Spider plot always uses selected filters"))
+                             )
+                         )
+                  ),
+                  
+                  # Main content area
+                  column(9,
+                         
+                         # Performance insights
+                         fluidRow(
+                           column(6,
+                                  div(class = "card",
+                                      div(class = "card-header", h5(icon("exclamation-triangle"), "Areas for Improvement")),
+                                      div(class = "card-body",
+                                          htmlOutput("improvement_description"),
+                                          DT::dataTableOutput("improvement_areas")
+                                      )
+                                  )
+                           ),
+                           column(6,
+                                  div(class = "card",
+                                      div(class = "card-header", h5(icon("star"), "Areas of Strength")),
+                                      div(class = "card-body",
+                                          htmlOutput("strength_description"),
+                                          DT::dataTableOutput("strength_areas")
+                                      )
+                                  )
+                           )
+                         ),
+                         
+                         br(),
+                         
+                         # Spider plot
+                         fluidRow(
+                           column(12,
+                                  div(class = "card",
+                                      div(class = "card-header", 
+                                          h5(icon("chart-area"), "Program Performance Spider Plot - All Sub-Competencies")),
+                                      div(class = "card-body",
+                                          plotlyOutput("program_spider", height = "600px")
+                                      )
+                                  )
+                           )
+                         ),
+                         
+                         br(),
+                         
+                         # Trend lines and heatmap with their own controls
+                         fluidRow(
+                           column(6,
+                                  div(class = "card",
+                                      div(class = "card-header", 
+                                          h5(icon("chart-line"), "Sequential Trend Analysis")),
+                                      div(class = "card-body",
+                                          selectInput("trend_competency", "Filter by Competency:",
+                                                      choices = c("All Competencies" = "all"),
+                                                      selected = "all"),
+                                          plotlyOutput("program_trends", height = "500px")
+                                      )
+                                  )
+                           ),
+                           column(6,
+                                  div(class = "card",
+                                      div(class = "card-header", 
+                                          h5(icon("th"), "Performance Heatmap")),
+                                      div(class = "card-body",
+                                          selectInput("heatmap_metric", "Heatmap Metric:",
+                                                      choices = list(
+                                                        "Mean Score" = "median",
+                                                        "Performance Category" = "performance_category"
+                                                      ),
+                                                      selected = "median"),
+                                          plotlyOutput("program_heatmap", height = "500px")
+                                      )
+                                  )
+                           )
+                         )
+                  )
                 )
               ),
               
-              # Main content
               conditionalPanel(
-                condition = "output.data_loaded == true",
-                
-                # Summary stats row
-                fluidRow(
-                  column(6,
-                         div(class = "card",
-                             div(class = "card-header", h5("Program Strengths")),
-                             div(class = "card-body", DT::dataTableOutput("strengths_table"))
-                         )
-                  ),
-                  column(6,
-                         div(class = "card",
-                             div(class = "card-header", h5("Areas for Improvement")),
-                             div(class = "card-body", DT::dataTableOutput("improvements_table"))
-                         )
-                  )
-                ),
-                
-                # Visualization row
-                fluidRow(
-                  column(6,
-                         div(class = "card",
-                             div(class = "card-header", h5("Competency Spider Plot")),
-                             div(class = "card-body", plotlyOutput("program_spider", height = "400px"))
-                         )
-                  ),
-                  column(6,
-                         div(class = "card",
-                             div(class = "card-header", h5("Competency Trend Lines")),
-                             div(class = "card-body", plotlyOutput("competency_trends", height = "400px"))
-                         )
-                  )
-                ),
-                
-                # Heat map row
-                fluidRow(
-                  column(12,
-                         div(class = "card",
-                             div(class = "card-header", 
-                                 h5("Sub-Competency Heatmap"),
-                                 div(class = "float-end",
-                                     selectInput("heatmap_metric", NULL,
-                                                 choices = c("Overall Median" = "overall",
-                                                             "Period Median" = "period", 
-                                                             "Year Median" = "year"),
-                                                 selected = "overall",
-                                                 width = "150px")
-                                 )
-                             ),
-                             div(class = "card-body", plotlyOutput("milestone_heatmap", height = "600px"))
-                         )
-                  )
-                )
+                condition = "!output.data_loaded",
+                div(class = "alert alert-info",
+                    icon("info-circle"), " Please upload and process CSV data first.")
               )
     ),
     
-    # ======================================================================
-    # INDIVIDUAL RESIDENTS TAB  
-    # ======================================================================
+    # Individual Residents Tab
     nav_panel("Individual Residents",
               icon = icon("user"),
               
-              # Controls row
-              fluidRow(
-                column(3,
-                       selectInput("selected_resident", "Select Resident:",
-                                   choices = NULL)
-                ),
-                column(3,
-                       selectInput("resident_period", "Assessment Period:",
-                                   choices = c("Total (All Periods)" = "total"),
-                                   selected = "total")
-                ),
-                column(6,
-                       conditionalPanel(
-                         condition = "output.data_loaded != true",
-                         div(class = "alert alert-warning",
-                             icon("exclamation-triangle"), " Please upload CSV data first")
-                       )
-                )
-              ),
-              
-              # Main content
               conditionalPanel(
-                condition = "output.data_loaded == true && input.selected_resident != null",
+                condition = "output.data_loaded",
                 
-                # Resident info and spider plot
+                # Filters
                 fluidRow(
                   column(4,
-                         div(class = "card",
-                             div(class = "card-header", h5("Resident Information")),
-                             div(class = "card-body", 
-                                 uiOutput("resident_info"))
-                         )
+                         selectInput("selected_resident", "Select Resident:",
+                                     choices = NULL)
                   ),
-                  column(8,
-                         div(class = "card",
-                             div(class = "card-header", h5("Individual Competency Profile")),
-                             div(class = "card-body", plotlyOutput("resident_spider", height = "400px"))
-                         )
+                  column(4,
+                         selectInput("individual_period", "Period:",
+                                     choices = c("Total (All Periods)" = "total"),
+                                     selected = "total")
+                  ),
+                  column(4,
+                         selectInput("individual_competency", "Trend Filter:",
+                                     choices = c("All Competencies" = "all"),
+                                     selected = "all")
                   )
                 ),
                 
-                # Milestone progression
+                # Individual performance summary
                 fluidRow(
                   column(12,
                          div(class = "card",
                              div(class = "card-header", 
-                                 h5("Sub-Competency Progression Over Time"),
-                                 div(class = "float-end",
-                                     selectInput("selected_milestone", "Select Sub-Competency:",
-                                                 choices = NULL,
-                                                 width = "200px")
-                                 )
-                             ),
-                             div(class = "card-body", plotlyOutput("milestone_progression", height = "400px"))
+                                 h5(icon("user-circle"), "Individual Performance Summary")),
+                             div(class = "card-body",
+                                 DT::dataTableOutput("individual_summary")
+                             )
                          )
                   )
                 ),
                 
-                # Detailed scores table
+                br(),
+                
+                # Individual spider plot
                 fluidRow(
                   column(12,
                          div(class = "card",
-                             div(class = "card-header", h5("Detailed Sub-Competency Scores")),
-                             div(class = "card-body", DT::dataTableOutput("resident_scores_table"))
+                             div(class = "card-header", 
+                                 h5(icon("chart-area"), "Individual vs Program Performance")),
+                             div(class = "card-body",
+                                 plotlyOutput("individual_spider", height = "600px")
+                             )
+                         )
+                  )
+                ),
+                
+                br(),
+                
+                # Individual trends and peer comparison
+                fluidRow(
+                  column(6,
+                         div(class = "card",
+                             div(class = "card-header", 
+                                 h5(icon("chart-line"), "Individual Progress Over Time")),
+                             div(class = "card-body",
+                                 plotlyOutput("individual_trends", height = "500px")
+                             )
+                         )
+                  ),
+                  column(6,
+                         div(class = "card",
+                             div(class = "card-header", 
+                                 h5(icon("users"), "Performance vs Peers")),
+                             div(class = "card-body",
+                                 plotlyOutput("peer_comparison", height = "500px")
+                             )
                          )
                   )
                 )
+              ),
+              
+              conditionalPanel(
+                condition = "!output.data_loaded",
+                div(class = "alert alert-info",
+                    icon("info-circle"), " Please upload and process CSV data first.")
+              )
+    ),
+    
+    # Data Overview Tab
+    nav_panel("Data Overview",
+              icon = icon("table"),
+              
+              conditionalPanel(
+                condition = "output.data_loaded",
+                
+                h4("Milestone Definitions"),
+                p("Sub-competencies extracted from your data:"),
+                DT::dataTableOutput("milestone_table"),
+                
+                br(),
+                
+                h4("Sample Evaluation Data"),
+                p("Sample processed evaluation records:"),
+                DT::dataTableOutput("evaluation_sample")
+              ),
+              
+              conditionalPanel(
+                condition = "!output.data_loaded",
+                div(class = "alert alert-info",
+                    icon("info-circle"), " Please upload and process CSV data first.")
               )
     )
   )

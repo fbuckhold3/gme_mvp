@@ -1,40 +1,54 @@
 # =============================================================================
-# GME MILESTONE VISUALIZATION PROJECT - MAIN APP (CORRECTED)
-# app.R
+# app.R - Fixed version with proper function sourcing
 # =============================================================================
 
-# Load required libraries
+# Load all required libraries FIRST
 library(shiny)
 library(bslib)
 library(dplyr)
 library(tidyr)
-library(stringr)
-library(plotly)
 library(DT)
-library(purrr)
-library(ggplot2)
-library(fmsb)
-library(viridis)
+library(plotly)
+library(stringr)
 
-# Source existing gmed components
-source("R/helpers.R")
+# Source the helper functions - use tryCatch to debug any issues
+tryCatch({
+  source("R/helpers.R")
+  cat("✓ Loaded helpers.R\n")
+}, error = function(e) {
+  cat("✗ Error loading helpers.R:", e$message, "\n")
+})
 
-# Try to source existing modules (with error handling for missing files)
-tryCatch(source("R/milestone_functions.R"), error = function(e) message("milestone_functions.R not found"))
-tryCatch(source("R/ui_components.R"), error = function(e) message("ui_components.R not found"))
-tryCatch(source("R/load_rdm_simple.R"), error = function(e) message("load_rdm_simple.R not found"))
-tryCatch(source("R/assessment_viz_module.R"), error = function(e) message("assessment_viz_module.R not found"))
-tryCatch(source("R/mod_plus_delta_table.R"), error = function(e) message("mod_plus_delta_table.R not found"))
-tryCatch(source("R/milestone_module.R"), error = function(e) message("milestone_module.R not found"))
+tryCatch({
+  source("R/program_visualization_enhanced.R")
+  cat("✓ Loaded program_visualization_enhanced.R\n")
+}, error = function(e) {
+  cat("✗ Error loading program_visualization_enhanced.R:", e$message, "\n")
+})
 
-# Source new ACGME modules
-source("R/acgme_dynamic_functions.R")
-source("R/acgme_visualization_functions.R")  # This needs to be fixed
-source("R/mod_acgme_program_overview.R")
+tryCatch({
+  source("R/individual_visualization_enhanced.R") 
+  cat("✓ Loaded individual_visualization_enhanced.R\n")
+}, error = function(e) {
+  cat("✗ Error loading individual_visualization_enhanced.R:", e$message, "\n")
+})
 
-# Source UI and Server
+# Test if key functions are available
+if (exists("get_performance_category")) {
+  cat("✓ get_performance_category function found\n")
+} else {
+  cat("✗ get_performance_category function NOT found\n")
+}
+
+if (exists("create_enhanced_spider_plot")) {
+  cat("✓ create_enhanced_spider_plot function found\n")
+} else {
+  cat("✗ create_enhanced_spider_plot function NOT found\n")
+}
+
+# Source UI and Server AFTER everything is loaded
 source("R/ui.R")
 source("R/server.R")
 
-# Launch the application
+# Run the app
 shinyApp(ui = ui, server = server)
