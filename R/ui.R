@@ -2,7 +2,7 @@
 # R/ui.R - User Interface (FIXED VERSION)
 # =============================================================================
 
-ui <- page_fluid(
+ui <- fluidPage(
   theme = bs_theme(version = 5, primary = "#2C3E50"),
   title = "GME Milestone Visualization Platform",
   

@@ -222,7 +222,7 @@ calculate_all_levels_readiness_enhanced <- function(data, threshold = 7, period_
   return(readiness_metrics)
 }
 
-#' Enhanced Sub-Competency Trend Data with Better Period Handling
+#' Enhanced Sub-Competency Trend Data - FIXED VERSION
 #'
 #' @param data Processed data from load_milestone_csv_data()
 #' @param sub_competency Specific sub-competency (e.g., "PC1", "MK3")
@@ -243,33 +243,11 @@ calculate_subcompetency_trends_enhanced <- function(data, sub_competency, thresh
       filter(Period %in% selected_periods)
   }
   
-  # Get period-specific means for comparison (from all data, not filtered)
-  period_specific_means <- evaluation_data %>%
-    mutate(
-      PGY_Number = as.numeric(str_extract(PGY_Level, "\\d+")),
-      Period_Type = case_when(
-        str_detect(Period, "Mid-Year") ~ "Mid-Year",
-        str_detect(Period, "Year-End|End-Year") ~ "Year-End",
-        TRUE ~ "Other"
-      ),
-      Academic_Year = str_extract(Period, "^\\d{4}-\\d{4}"),
-      Period_Order = case_when(
-        Period_Type == "Mid-Year" ~ (PGY_Number - 1) * 2 + 1,
-        Period_Type == "Year-End" ~ (PGY_Number - 1) * 2 + 2,
-        TRUE ~ 999
-      ),
-      Period_Label = paste0(Period_Type, " ", PGY_Level)
-    ) %>%
-    filter(Period_Order < 999) %>%
-    group_by(Period_Order, Period_Label, PGY_Level, Period) %>%
-    summarise(
-      period_mean_all_subcomp = mean(Rating, na.rm = TRUE),
-      total_evaluations_period = n(),
-      .groups = "drop"
-    ) %>%
-    filter(total_evaluations_period >= 5)
+  if (nrow(filtered_data) == 0) {
+    return(data.frame())
+  }
   
-  # Calculate trend data for the selected sub-competency
+  # SIMPLIFIED: Calculate trend data for the selected sub-competency (one point per period)
   trend_data <- filtered_data %>%
     mutate(
       PGY_Number = as.numeric(str_extract(PGY_Level, "\\d+")),
@@ -285,10 +263,11 @@ calculate_subcompetency_trends_enhanced <- function(data, sub_competency, thresh
         TRUE ~ 999
       ),
       Period_Label = paste0(Period_Type, " ", PGY_Level),
-      Full_Period_Label = Period  # Use the actual period name
+      Full_Period_Label = Period
     ) %>%
     filter(Period_Order < 999) %>%
-    group_by(Period_Order, Period_Label, Full_Period_Label, PGY_Level, Period_Type, Academic_Year, Period) %>%
+    # GROUP BY PERIOD ONLY (not by PGY_Level) to get one point per period
+    group_by(Period_Order, Period_Label, Full_Period_Label, Period_Type, Academic_Year, Period) %>%
     summarise(
       total_residents = n_distinct(Resident_Name),
       total_evaluations = n(),
@@ -300,21 +279,51 @@ calculate_subcompetency_trends_enhanced <- function(data, sub_competency, thresh
       .groups = "drop"
     ) %>%
     filter(total_evaluations >= 3) %>%
-    # Join with period-specific means for comparison
+    arrange(Period_Order)
+  
+  if (nrow(trend_data) == 0) {
+    return(data.frame())
+  }
+  
+  # Calculate period-specific means across ALL sub-competencies for comparison
+  period_specific_means <- evaluation_data %>%
+    mutate(
+      PGY_Number = as.numeric(str_extract(PGY_Level, "\\d+")),
+      Period_Type = case_when(
+        str_detect(Period, "Mid-Year") ~ "Mid-Year",
+        str_detect(Period, "Year-End|End-Year") ~ "Year-End",
+        TRUE ~ "Other"
+      ),
+      Period_Order = case_when(
+        Period_Type == "Mid-Year" ~ (PGY_Number - 1) * 2 + 1,
+        Period_Type == "Year-End" ~ (PGY_Number - 1) * 2 + 2,
+        TRUE ~ 999
+      )
+    ) %>%
+    filter(Period_Order < 999, Period %in% trend_data$Period) %>%
+    # GROUP BY PERIOD ONLY to get one comparison point per period
+    group_by(Period) %>%
+    summarise(
+      period_specific_mean = mean(Rating, na.rm = TRUE),
+      total_evaluations_period = n(),
+      .groups = "drop"
+    ) %>%
+    filter(total_evaluations_period >= 5)
+  
+  # Join the data - this should now be a clean 1:1 join
+  final_trend_data <- trend_data %>%
     left_join(
-      period_specific_means %>%
-        select(Period, period_specific_mean = period_mean_all_subcomp),
+      period_specific_means %>% select(Period, period_specific_mean),
       by = "Period"
     ) %>%
     mutate(
       sub_competency = sub_competency,
       threshold_used = threshold,
-      # If no period-specific mean available, use overall mean as fallback
-      period_specific_mean = ifelse(is.na(period_specific_mean), mean_score, period_specific_mean)
+      performance_vs_period = mean_score - period_specific_mean
     ) %>%
     arrange(Period_Order)
   
-  return(trend_data)
+  return(final_trend_data)
 }
 
 #' Create Graduation Readiness Chart
@@ -458,7 +467,7 @@ create_all_levels_chart <- function(readiness_data) {
   return(fig)
 }
 
-#' Create Enhanced Trend Chart with Fixed Horizontal Line
+#' Create Enhanced Trend Chart - FIXED VERSION
 #'
 #' @param trend_data Output from calculate_subcompetency_trends_enhanced()
 #' @param show_total_average Whether to show the total average line across all periods
@@ -522,8 +531,8 @@ create_trend_chart_enhanced <- function(trend_data, show_total_average = TRUE) {
     # Create horizontal line data points
     x_range <- range(trend_data$Period_Order)
     horizontal_line_data <- data.frame(
-      x = seq(x_range[1], x_range[2], length.out = 2),
-      y = rep(total_mean, 2)
+      x = c(x_range[1], x_range[2]),
+      y = c(total_mean, total_mean)
     )
     
     fig <- fig %>% add_trace(

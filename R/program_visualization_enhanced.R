@@ -760,7 +760,8 @@ create_multi_level_spider_plot <- function(data, period_type = "recent_end",
     } else {
       period_title <- "No Mid-Year Data Available"
     }
-  } else if (period_type == "all_periods") {
+  } else if (period_type == "all_periods" || period_type == "total") {
+    # Don't filter by period - use all data
     period_title <- "All Periods Combined"
   } else {
     # Specific period

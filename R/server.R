@@ -122,7 +122,7 @@ server <- function(input, output, session) {
            "specific" = input$specific_period,
            "recent_end" = "recent_end",
            "recent_mid" = "recent_mid", 
-           "all_periods" = "total",  # CHANGED: was "all_periods", should be "total"
+           "all_periods" = "all_periods",  # FIXED: Changed from "total" to "all_periods"
            "recent_end")  # default fallback
   })
   
