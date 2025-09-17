@@ -2,8 +2,27 @@
 # R/ui.R - User Interface (FIXED VERSION)
 # =============================================================================
 
+# Safe theme creation
+create_theme <- function() {
+  tryCatch({
+    return(bslib::bs_theme(version = 5, primary = "#2C3E50"))
+  }, error = function(e) {
+    warning("bslib theme failed, using default: ", e$message)
+    return(NULL)
+  })
+}
+
 ui <- fluidPage(
-  theme = bs_theme(version = 5, primary = "#2C3E50"),
+  theme = create_theme(),  # Will be NULL if bslib fails
+  
+  # Custom CSS backup
+  tags$head(
+    tags$style(HTML("
+      .btn-primary { background-color: #2C3E50 !important; border-color: #2C3E50 !important; }
+      .nav-tabs > li.active > a { background-color: #2C3E50 !important; color: white !important; }
+    ")),
+    tags$title("GME Milestone Visualization Platform")
+  ),
   title = "GME Milestone Visualization Platform",
   
   # Header
