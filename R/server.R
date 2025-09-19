@@ -939,7 +939,138 @@ server <- function(input, output, session) {
     )
   ))
   
-
+  # =========================================================================
+  # INDIVIDUAL ASSESSMENT INTEGRATION
+  # =========================================================================
+  
+  # Update resident choices when data changes
+  observeEvent(milestone_data(), {
+    if (!is.null(milestone_data()) && !is.null(milestone_data()$evaluations)) {
+      residents <- sort(unique(milestone_data()$evaluations$Resident_Name))
+      residents <- residents[!is.na(residents) & residents != ""]
+      updateSelectInput(session, "individual_resident", 
+                        choices = setNames(residents, residents))
+    }
+  })
+  
+  # Update level choices when resident changes
+  observeEvent(input$individual_resident, {
+    req(milestone_data(), input$individual_resident)
+    
+    resident_data <- milestone_data()$evaluations[milestone_data()$evaluations$Resident_Name == input$individual_resident, ]
+    
+    if (nrow(resident_data) > 0) {
+      level_combinations <- resident_data %>%
+        select(Period, PGY_Level) %>%
+        distinct() %>%
+        arrange(desc(PGY_Level), Period) %>%
+        mutate(
+          display_name = paste0(PGY_Level, " - ", Period),
+          value = paste0(Period, "|||", PGY_Level)
+        )
+      
+      level_choices <- setNames(level_combinations$value, level_combinations$display_name)
+      level_choices <- c("All Evaluations" = "all", level_choices)
+      
+      updateSelectInput(session, "individual_level", 
+                        choices = level_choices,
+                        selected = level_choices[2])
+    }
+  })
+  
+  # Summary statistics reactive
+  individual_stats <- reactive({
+    req(milestone_data(), input$individual_resident, input$individual_level)
+    
+    resident_data <- milestone_data()$evaluations[milestone_data()$evaluations$Resident_Name == input$individual_resident, ]
+    
+    if (input$individual_level != "all") {
+      level_parts <- strsplit(input$individual_level, "\\|\\|\\|")[[1]]
+      if (length(level_parts) == 2) {
+        resident_data <- resident_data[resident_data$Period == level_parts[1] & 
+                                         resident_data$PGY_Level == level_parts[2], ]
+      }
+    }
+    
+    if (nrow(resident_data) == 0) {
+      return(list(total_evaluations = 0, individual_avg = 0, program_avg = 0, percentile = 0))
+    }
+    
+    individual_avg <- round(mean(resident_data$Rating, na.rm = TRUE), 2)
+    
+    program_data <- milestone_data()$evaluations
+    if (input$individual_level != "all") {
+      level_parts <- strsplit(input$individual_level, "\\|\\|\\|")[[1]]
+      if (length(level_parts) == 2) {
+        program_data <- program_data[program_data$Period == level_parts[1] & 
+                                       program_data$PGY_Level == level_parts[2], ]
+      }
+    }
+    
+    program_avg <- round(mean(program_data$Rating, na.rm = TRUE), 2)
+    
+    all_residents <- program_data %>%
+      group_by(Resident_Name) %>%
+      summarise(resident_avg = mean(Rating, na.rm = TRUE), .groups = "drop") %>%
+      filter(!is.na(resident_avg))
+    
+    percentile <- round(100 * mean(all_residents$resident_avg <= individual_avg, na.rm = TRUE), 0)
+    
+    return(list(
+      total_evaluations = nrow(resident_data),
+      individual_avg = individual_avg,
+      program_avg = program_avg,
+      percentile = percentile
+    ))
+  })
+  
+  # Individual assessment outputs
+  output$individual_total_evaluations <- renderText({
+    req(individual_stats())
+    as.character(individual_stats()$total_evaluations)
+  })
+  
+  output$individual_avg_score <- renderText({
+    req(individual_stats())
+    as.character(individual_stats()$individual_avg)
+  })
+  
+  output$program_avg_score <- renderText({
+    req(individual_stats())
+    as.character(individual_stats()$program_avg)
+  })
+  
+  output$individual_percentile <- renderText({
+    req(individual_stats())
+    paste0(individual_stats()$percentile, "%")
+  })
+  
+  output$individual_spider_enhanced <- renderPlotly({
+    req(milestone_data(), input$individual_resident, input$individual_level)
+    
+    tryCatch({
+      # Use the enhanced spider plot function from the artifact
+      create_individual_spider_enhanced(milestone_data(), input$individual_resident, input$individual_level)
+    }, error = function(e) {
+      plot_ly() %>% 
+        add_annotations(text = paste("Error:", e$message), 
+                        x = 0.5, y = 0.5, showarrow = FALSE)
+    })
+  })
+  
+  output$individual_trend_enhanced <- renderPlotly({
+    req(milestone_data(), input$individual_resident)
+    
+    tryCatch({
+      create_individual_trend_enhanced(milestone_data(), input$individual_resident)
+    }, error = function(e) {
+      plot_ly() %>% 
+        add_annotations(text = paste("Error:", e$message), 
+                        x = 0.5, y = 0.5, showarrow = FALSE)
+    })
+  })
+  
+  # Additional outputs would go here...
   
   # =========================================================================
   # DEBUG OUTPUT (OPTIONAL - REMOVE IN PRODUCTION)

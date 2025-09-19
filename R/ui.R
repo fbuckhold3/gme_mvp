@@ -18,42 +18,90 @@ ui <- fluidPage(
   # Custom CSS backup
   tags$head(
     tags$style(HTML("
-  .btn-primary { background-color: #2C3E50 !important; border-color: #2C3E50 !important; }
-  .nav-tabs > li.active > a { background-color: #2C3E50 !important; color: white !important; }
-  
-  /* Milestone reference table styling - FORCE narrow first column */
-  #milestone_reference_table {
-    border-collapse: separate !important;
-    border-spacing: 1px !important;
-    table-layout: fixed !important;
-    width: 100% !important;
-  }
-  
-  #milestone_reference_table td {
-    border: none !important;
-    padding: 0px !important;
-    vertical-align: middle !important;
-  }
-  
-  #milestone_reference_table tbody tr:hover {
-    background-color: transparent !important;
-  }
-  
-  /* FORCE Code column to be narrow */
-  #milestone_reference_table th:first-child,
-  #milestone_reference_table td:first-child {
-    width: 60px !important;
-    max-width: 60px !important;
-    min-width: 60px !important;
-    overflow: hidden !important;
-  }
-  
-  /* FORCE Description column to take remaining space */
-  #milestone_reference_table th:nth-child(2),
-  #milestone_reference_table td:nth-child(2) {
-    width: calc(100% - 60px) !important;
-  }
+.btn-primary { background-color: #2C3E50 !important; border-color: #2C3E50 !important; }
+.nav-tabs > li.active > a { background-color: #2C3E50 !important; color: white !important; }
+
+/* JavaScript-controlled sticky sidebar */
+.js-sticky-sidebar {
+  transition: all 0.3s ease;
+}
+
+.js-sticky-sidebar.stuck {
+  position: fixed;
+  top: 20px;
+  width: 300px;
+  z-index: 100;
+}
+
+/* Milestone reference table styling */
+#milestone_reference_table {
+  border-collapse: separate !important;
+  border-spacing: 1px !important;
+  table-layout: fixed !important;
+  width: 100% !important;
+}
+
+#milestone_reference_table td {
+  border: none !important;
+  padding: 0px !important;
+  vertical-align: middle !important;
+}
+
+#milestone_reference_table tbody tr:hover {
+  background-color: transparent !important;
+}
+
+#milestone_reference_table th:first-child,
+#milestone_reference_table td:first-child {
+  width: 60px !important;
+  max-width: 60px !important;
+  min-width: 60px !important;
+  overflow: hidden !important;
+}
+
+#milestone_reference_table th:nth-child(2),
+#milestone_reference_table td:nth-child(2) {
+  width: calc(100% - 60px) !important;
+}
+
 ")),
+    tags$script(HTML("
+  $(document).ready(function() {
+    function handleSticky() {
+      $('.js-sticky-sidebar').each(function() {
+        var sidebar = $(this);
+        var container = sidebar.closest('.tab-pane.active');
+        
+        if (container.length === 0) return;
+        
+        var shouldStick = $(window).scrollTop() > 100;
+        var mainContent = null;
+        
+        // Find the correct main content based on which tab is active
+        if (container.find('#milestone-main-content').length > 0) {
+          mainContent = $('#milestone-main-content');
+        } else if (container.find('#program-main-content').length > 0) {
+          mainContent = $('#program-main-content');
+        }
+        
+        if (mainContent) {
+          if (shouldStick && !sidebar.hasClass('stuck')) {
+            sidebar.addClass('stuck');
+            mainContent.css('margin-left', '320px');
+          } else if (!shouldStick && sidebar.hasClass('stuck')) {
+            sidebar.removeClass('stuck');
+            mainContent.css('margin-left', '0');
+          }
+        }
+      });
+    }
+    
+    $(window).on('scroll', handleSticky);
+    $(document).on('shown.bs.tab', handleSticky);
+    setTimeout(handleSticky, 100);
+  });
+")),
+    
     tags$title("GME Milestone Visualization Platform")
   ),
   title = "GME Milestone Visualization Platform",
@@ -64,7 +112,7 @@ ui <- fluidPage(
       h1("GME Milestone Visualization Platform", style = "margin: 0; font-weight: 300; font-size: 2.5rem;"),
       uiOutput("program_subtitle")
   ),
-  
+
   # Main content
   navset_card_tab(
     id = "main_tabs",
@@ -113,12 +161,12 @@ ui <- fluidPage(
               conditionalPanel(
                 condition = "output.data_loaded",
                 
-                fluidRow(
-                  # Left sidebar with controls
-                  column(3,
-                         div(class = "card",
-                             div(class = "card-header", h5("Analysis Controls")),
-                             div(class = "card-body",
+                div(style = "display: flex; gap: 20px;",
+                    # Left sidebar - now using flexbox instead of Bootstrap columns
+                    div(style = "flex: 0 0 300px;", # Fixed width sidebar
+                        div(class = "card js-sticky-sidebar",
+                            div(class = "card-header", h5("Analysis Controls")),
+                            div(class = "card-body",
                                  
                                  # Assessment Period Selection - FIXED
                                  h6("Assessment Period:", style = "font-weight: bold; margin-top: 10px;"),
@@ -183,11 +231,11 @@ ui <- fluidPage(
                                       • Spider plot supports multiple period comparisons<br>
                                       • Use 'All Periods' to see combined data trends"))
                              )
-                         )
-                  ),
+                        )
+                      ),
                   
                   # Main content area
-                  column(9,
+                  div(id = "program-main-content", style = "flex: 1;",
                          
                          # Performance insights
                          fluidRow(
@@ -261,12 +309,12 @@ ui <- fluidPage(
               conditionalPanel(
                 condition = "output.data_loaded",
                 
-                fluidRow(
-                  # Controls Sidebar
-                  column(3,
-                         div(class = "card",
-                             div(class = "card-header", h5("Analysis Settings")),
-                             div(class = "card-body",
+                div(style = "display: flex; gap: 20px;",
+                    # Left sidebar - using flexbox like Program Overview
+                    div(style = "flex: 0 0 300px;", # Fixed width sidebar
+                        div(class = "card js-sticky-sidebar",
+                            div(class = "card-header", h5("Analysis Settings")),
+                            div(class = "card-body",
                                  
                                  # Global threshold setting
                                  sliderInput("milestone_threshold", 
@@ -319,12 +367,13 @@ ui <- fluidPage(
                                       🟢 <strong>Good:</strong> 2.5-5% below threshold<br>
                                       🟠 <strong>Concerning:</strong> 5-7.5% below threshold<br>
                                       🔴 <strong>High Risk:</strong> >7.5% below threshold"))
-                             )
-                         )
-                  ),
+                            )
+                           )
+                        )
+                      ),
                   
                   # Main Content Area
-                  column(9,
+                div(id = "milestone-main-content", style = "flex: 1;",
                          
                          # Section 1: Graduation Readiness (Highest PGY Only)
                          fluidRow(
@@ -424,7 +473,6 @@ ui <- fluidPage(
                            )
                          )
                   )
-                )
               ),
               
               # Show message when no data loaded
@@ -436,89 +484,7 @@ ui <- fluidPage(
     ),
     
     # Individual Residents Tab
-    nav_panel("Individual Residents",
-              icon = icon("user"),
-              
-              conditionalPanel(
-                condition = "output.data_loaded",
-                
-                # Filters
-                fluidRow(
-                  column(4,
-                         selectInput("selected_resident", "Select Resident:",
-                                     choices = NULL)
-                  ),
-                  column(4,
-                         selectInput("individual_period", "Period:",
-                                     choices = c("Total (All Periods)" = "total"),
-                                     selected = "total")
-                  ),
-                  column(4,
-                         selectInput("individual_competency", "Trend Filter:",
-                                     choices = c("All Competencies" = "all"),
-                                     selected = "all")
-                  )
-                ),
-                
-                # Individual performance summary
-                fluidRow(
-                  column(12,
-                         div(class = "card",
-                             div(class = "card-header", 
-                                 h5(icon("user-circle"), "Individual Performance Summary")),
-                             div(class = "card-body",
-                                 DT::dataTableOutput("individual_summary")
-                             )
-                         )
-                  )
-                ),
-                
-                br(),
-                
-                # Individual spider plot
-                fluidRow(
-                  column(12,
-                         div(class = "card",
-                             div(class = "card-header", 
-                                 h5(icon("chart-area"), "Individual vs Program Performance")),
-                             div(class = "card-body",
-                                 plotlyOutput("individual_spider", height = "600px")
-                             )
-                         )
-                  )
-                ),
-                
-                br(),
-                
-                # Individual trends and peer comparison
-                fluidRow(
-                  column(6,
-                         div(class = "card",
-                             div(class = "card-header", 
-                                 h5(icon("chart-line"), "Individual Progress Over Time")),
-                             div(class = "card-body",
-                                 plotlyOutput("individual_trends", height = "500px")
-                             )
-                         )
-                  ),
-                  column(6,
-                         div(class = "card",
-                             div(class = "card-header", 
-                                 h5(icon("users"), "Performance vs Peers")),
-                             div(class = "card-body",
-                                 plotlyOutput("peer_comparison", height = "500px")
-                             )
-                         )
-                  )
-                )
-              ),
-              
-              conditionalPanel(
-                condition = "!output.data_loaded",
-                div(class = "alert alert-info",
-                    icon("info-circle"), " Please upload and process CSV data first.")
-              )
-    ),
+    create_individual_assessment_ui(),
     
     # Data Overview Tab
     nav_panel("Data Overview",
