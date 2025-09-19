@@ -65,23 +65,27 @@ calculate_graduation_readiness_enhanced <- function(data, threshold = 7, period_
   
   graduating_level <- paste0("PGY-", max_pgy)
   
-  # Filter to graduating residents only
-  graduating_data <- evaluation_data %>%
-    filter(PGY_Level == graduating_level)
-  
-  # Apply period filter
+  # MODIFIED: Filter for ONLY final End-Year assessments across multiple graduation years
   if (period_filter == "latest_year_end") {
-    latest_year_end <- graduating_data %>%
-      filter(str_detect(Period, "Year-End|End-Year")) %>%
+    graduating_data <- evaluation_data %>%
+      filter(
+        PGY_Level == graduating_level,
+        str_detect(Period, "Year-End|End-Year")  # Only End-Year assessments
+      ) %>%
+      # Group by academic year and resident, take only the final (most recent) assessment
+      group_by(Resident_Name, str_extract(Period, "^\\d{4}-\\d{4}")) %>%
       arrange(desc(Period)) %>%
-      pull(Period) %>%
-      head(1)
+      slice_head(n = 1) %>%
+      ungroup()
+  } else {
+    # For other period filters, first filter by graduating level
+    graduating_data <- evaluation_data %>%
+      filter(PGY_Level == graduating_level)
     
-    if (length(latest_year_end) > 0) {
-      graduating_data <- graduating_data %>% filter(Period == latest_year_end)
+    # Then apply period filter
+    if (period_filter != "all") {
+      graduating_data <- graduating_data %>% filter(Period == period_filter)
     }
-  } else if (period_filter != "all") {
-    graduating_data <- graduating_data %>% filter(Period == period_filter)
   }
   
   # Apply competency filter
@@ -149,7 +153,6 @@ calculate_graduation_readiness_enhanced <- function(data, threshold = 7, period_
   
   return(readiness_metrics)
 }
-
 #' Enhanced All Levels Analysis with PGY and Period Selection
 #'
 #' @param data Processed data from load_milestone_csv_data()
@@ -649,5 +652,216 @@ get_all_period_choices <- function(data) {
   return(choices)
 }
 
+#' Calculate Cohort Information
+#' 
+#' Determines graduation years and cohorts based on current PGY level and academic year
+#' 
+#' @param data Processed data from load_milestone_csv_data()
+#' @return Data frame with cohort information
+calculate_cohort_information <- function(data) {
+  
+  evaluation_data <- data$evaluations
+  
+  # Extract program length from data (highest PGY level)
+  max_pgy <- evaluation_data %>%
+    mutate(pgy_num = as.numeric(str_extract(PGY_Level, "\\d+"))) %>%
+    pull(pgy_num) %>%
+    max(na.rm = TRUE)
+  
+  # Calculate cohorts
+  cohort_data <- evaluation_data %>%
+    mutate(
+      # Extract academic year and PGY number
+      academic_year = str_extract(Period, "^\\d{4}-\\d{4}"),
+      pgy_num = as.numeric(str_extract(PGY_Level, "\\d+")),
+      start_year = as.numeric(str_extract(academic_year, "^\\d{4}"))
+    ) %>%
+    filter(!is.na(academic_year), !is.na(pgy_num)) %>%
+    mutate(
+      # Calculate graduation year: start_year + (max_pgy - current_pgy)
+      graduation_year = start_year + (max_pgy - pgy_num),
+      cohort_label = paste0("Class of ", graduation_year + 1),  # +1 because they graduate in spring
+      
+      # Create period-level identifier for tracking progression
+      period_level = paste(str_extract(Period, "(Mid-Year|Year-End)"), PGY_Level),
+      
+      # Calculate what "year" this is in their training (1st year, 2nd year, etc.)
+      training_year = pgy_num,
+      
+      # Create a standardized period order for plotting
+      period_order = case_when(
+        str_detect(Period, "Mid-Year") ~ (pgy_num - 1) * 2 + 1,
+        str_detect(Period, "Year-End") ~ (pgy_num - 1) * 2 + 2,
+        TRUE ~ 999
+      )
+    ) %>%
+    select(Resident_Name, academic_year, PGY_Level, pgy_num, graduation_year, 
+           cohort_label, period_level, training_year, period_order, Period, 
+           Sub_Competency, Rating, Competency)
+  
+  return(cohort_data)
+}
 
+#' Calculate Program Benchmarks by Period-Level
+#' 
+#' Calculates overall program means for each period-PGY combination
+#' 
+#' @param cohort_data Output from calculate_cohort_information()
+#' @return Data frame with benchmark means
+calculate_program_benchmarks <- function(cohort_data) {
+  
+  benchmarks <- cohort_data %>%
+    group_by(period_level, Sub_Competency, pgy_num, Period) %>%
+    summarise(
+      benchmark_mean = mean(Rating, na.rm = TRUE),
+      benchmark_n = n(),
+      period_order = first(period_order),
+      .groups = "drop"
+    ) %>%
+    filter(benchmark_n >= 5)  # Only include benchmarks with sufficient data
+  
+  return(benchmarks)
+}
 
+#' Create Cohort Trend Analysis with Program Baseline
+#' 
+#' Creates trend plot with program baseline always shown, cohorts optional
+#' 
+#' @param data Processed data from load_milestone_csv_data()
+#' @param selected_sub_competency Sub-competency to analyze
+#' @param selected_cohorts Vector of cohort labels to include (optional)
+#' @return Plotly trend chart
+create_cohort_trend_analysis <- function(data, selected_sub_competency, selected_cohorts = NULL) {
+  
+  # Calculate cohort information for all data
+  cohort_data <- calculate_cohort_information(data)
+  
+  # Filter for selected sub-competency
+  cohort_data <- cohort_data %>%
+    filter(Sub_Competency == selected_sub_competency)
+  
+  if (nrow(cohort_data) == 0) {
+    return(plot_ly() %>%
+             add_annotations(text = paste("No data available for", selected_sub_competency), 
+                             x = 0.5, y = 0.5, showarrow = FALSE))
+  }
+  
+  # Calculate program benchmarks for ALL possible periods in this specialty
+  # This ensures we always show the complete training progression
+  all_program_data <- cohort_data %>%
+    group_by(period_level, period_order, PGY_Level) %>%
+    summarise(
+      program_mean = mean(Rating, na.rm = TRUE),
+      program_n = n(),
+      .groups = "drop"
+    ) %>%
+    filter(program_n >= 3) %>%  # Only include periods with sufficient data
+    arrange(period_order)
+  
+  # Create ordered factor for proper x-axis ordering
+  ordered_periods <- all_program_data$period_level[order(all_program_data$period_order)]
+  all_program_data$period_level <- factor(all_program_data$period_level, levels = ordered_periods, ordered = TRUE)
+  
+  # Create the plot starting with program baseline
+  fig <- plot_ly()
+  
+  # ALWAYS add the program baseline (this is the default view)
+  fig <- fig %>%
+    add_trace(
+      data = all_program_data,
+      x = ~period_level,
+      y = ~program_mean,
+      type = 'scatter',
+      mode = 'lines+markers',
+      name = 'Program Average (All Years)',
+      line = list(color = '#2C3E50', width = 3),
+      marker = list(color = '#2C3E50', size = 8),
+      hovertemplate = paste0(
+        '<b>Program Average</b><br>',
+        'Period: %{x}<br>',
+        'Mean Score: %{y:.2f}<br>',
+        'Total Evaluations: ', all_program_data$program_n, '<br>',
+        '<extra></extra>'
+      )
+    )
+  
+  # Add cohort lines only if cohorts are selected
+  if (!is.null(selected_cohorts) && length(selected_cohorts) > 0) {
+    
+    # Filter for selected cohorts
+    cohort_subset <- cohort_data %>%
+      filter(cohort_label %in% selected_cohorts)
+    
+    # Calculate cohort means
+    cohort_means <- cohort_subset %>%
+      group_by(cohort_label, period_level, period_order, PGY_Level) %>%
+      summarise(
+        cohort_mean = mean(Rating, na.rm = TRUE),
+        cohort_n = n(),
+        .groups = "drop"
+      ) %>%
+      filter(cohort_n >= 2) %>%  # Slightly lower threshold for cohorts
+      arrange(period_order)
+    
+    # Convert to ordered factor using same levels as program data
+    cohort_means$period_level <- factor(cohort_means$period_level, levels = ordered_periods, ordered = TRUE)
+    
+    # Define colors for cohorts (brighter colors to stand out against baseline)
+    cohort_colors <- c('#E74C3C', '#3498DB', '#2ECC71', '#F39C12', '#9B59B6', '#E67E22')
+    
+    # Add cohort lines
+    for (i in seq_along(selected_cohorts)) {
+      cohort <- selected_cohorts[i]
+      cohort_data_subset <- cohort_means %>% filter(cohort_label == cohort)
+      
+      if (nrow(cohort_data_subset) > 0) {
+        fig <- fig %>%
+          add_trace(
+            data = cohort_data_subset,
+            x = ~period_level,
+            y = ~cohort_mean,
+            type = 'scatter',
+            mode = 'lines+markers',
+            name = cohort,
+            line = list(color = cohort_colors[i], width = 2.5),
+            marker = list(color = cohort_colors[i], size = 7),
+            hovertemplate = paste0(
+              '<b>', cohort, '</b><br>',
+              'Period: %{x}<br>',
+              'Mean Score: %{y:.2f}<br>',
+              'N: ', cohort_data_subset$cohort_n, '<br>',
+              '<extra></extra>'
+            )
+          )
+      }
+    }
+  }
+  
+  # Layout
+  fig <- fig %>%
+    layout(
+      title = list(
+        text = paste0("<b>Training Progression: ", selected_sub_competency, "</b>"),
+        font = list(size = 16)
+      ),
+      xaxis = list(
+        title = "Training Period & Level",
+        tickangle = -45,
+        categoryorder = "array",
+        categoryarray = ordered_periods
+      ),
+      yaxis = list(
+        title = "Mean Milestone Score",
+        range = c(1, 9)
+      ),
+      hovermode = 'closest',
+      legend = list(
+        orientation = "h",
+        x = 0.5,
+        xanchor = 'center',
+        y = -0.3
+      )
+    )
+  
+  return(fig)
+}

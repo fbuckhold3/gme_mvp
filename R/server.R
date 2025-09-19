@@ -115,6 +115,7 @@ server <- function(input, output, session) {
   
 
   # Get current period selection for analysis
+  # FIND THIS FUNCTION (around line 124) AND REPLACE IT:
   get_current_period <- reactive({
     req(input$period_selection)
     
@@ -122,7 +123,7 @@ server <- function(input, output, session) {
            "specific" = input$specific_period,
            "recent_end" = "recent_end",
            "recent_mid" = "recent_mid", 
-           "all_periods" = "all_periods",  # FIXED: Changed from "total" to "all_periods"
+           "all_periods" = "total",  # CHANGED: from "all_periods" to "total"
            "recent_end")  # default fallback
   })
   
@@ -371,13 +372,12 @@ server <- function(input, output, session) {
   # PROGRAM OVERVIEW OUTPUTS
   # =========================================================================
   
-  # Areas for improvement
+  # Areas for improvement table
   output$improvement_areas <- DT::renderDataTable({
     req(milestone_data())
     
     tryCatch({
       if (input$tables_use_filters) {
-        # Use the current filter selections
         improvements <- identify_improvement_areas_filtered(
           milestone_data(), 
           n_items = 5,
@@ -385,7 +385,6 @@ server <- function(input, output, session) {
           selected_pgy_levels = selected_pgy_levels()
         )
       } else {
-        # Use default end-year behavior
         improvements <- identify_improvement_areas(
           milestone_data(), 
           n_items = 5, 
@@ -398,13 +397,12 @@ server <- function(input, output, session) {
     })
   }, options = list(pageLength = 5, dom = 't', scrollX = TRUE))
   
-  # Areas of strength
+  # Areas of strength table  
   output$strength_areas <- DT::renderDataTable({
     req(milestone_data())
     
     tryCatch({
       if (input$tables_use_filters) {
-        # Use the current filter selections
         strengths <- identify_strength_areas_filtered(
           milestone_data(), 
           n_items = 5,
@@ -412,7 +410,6 @@ server <- function(input, output, session) {
           selected_pgy_levels = selected_pgy_levels()
         )
       } else {
-        # Use default end-year behavior
         strengths <- identify_strength_areas(
           milestone_data(), 
           n_items = 5, 
@@ -538,6 +535,38 @@ server <- function(input, output, session) {
       )
     }
   })
+  
+  # Milestone reference table
+  # Milestone reference table
+  output$milestone_reference_table <- DT::renderDataTable({
+    req(milestone_data())
+    
+    tryCatch({
+      create_milestone_reference_table(milestone_data())
+    }, error = function(e) {
+      data.frame(Error = paste("Error:", e$message))
+    })
+  }, options = list(
+    pageLength = 25,
+    dom = 'ft',
+    scrollX = FALSE,
+    autoWidth = FALSE,
+    columnDefs = list(
+      list(width = '60px', targets = 0, className = 'dt-center'),  # Code column - very narrow
+      list(width = 'calc(100% - 60px)', targets = 1)              # Description takes remaining
+    ),
+    initComplete = JS(
+      "function(settings, json) {",
+      "  $(this.api().table().container()).find('th:eq(0)').css('width', '60px');",
+      "  $(this.api().table().container()).find('th:eq(1)').css('width', 'calc(100% - 60px)');",
+      "}"
+    ),
+    rowCallback = JS("
+    function(row, data) {
+      $(row).find('td').css({'border': 'none', 'padding': '0px'});
+      $(row).find('td:eq(0)').css({'width': '60px', 'max-width': '60px'});
+    }")
+  ), escape = FALSE)
   
   # =========================================================================
   # MILESTONE ANALYSIS
@@ -681,7 +710,74 @@ server <- function(input, output, session) {
   })
   
   
-
+  # Update cohort choices when data loads
+  observeEvent(milestone_data(), {
+    req(milestone_data())
+    
+    # Update sub-competency choices
+    subcompetencies <- sort(unique(milestone_data()$evaluations$Sub_Competency))
+    updateSelectInput(session, "trend_subcompetency", 
+                      choices = setNames(subcompetencies, subcompetencies),
+                      selected = subcompetencies[1])
+    
+    # Calculate and update cohort choices
+    cohort_info <- calculate_cohort_information(milestone_data())
+    available_cohorts <- cohort_info %>%
+      count(cohort_label, sort = TRUE) %>%
+      pull(cohort_label)
+    
+    updateCheckboxGroupInput(session, "selected_cohorts",
+                             choices = setNames(available_cohorts, available_cohorts),
+                             selected = head(available_cohorts, 3))  # Select top 3 by default
+  })
+  
+  # Cohort selection buttons
+  # Update cohort choices when data loads
+  observeEvent(milestone_data(), {
+    req(milestone_data())
+    
+    # Update sub-competency choices
+    subcompetencies <- sort(unique(milestone_data()$evaluations$Sub_Competency))
+    updateSelectInput(session, "trend_subcompetency", 
+                      choices = setNames(subcompetencies, subcompetencies),
+                      selected = subcompetencies[1])
+    
+    # Calculate and update cohort choices
+    cohort_info <- calculate_cohort_information(milestone_data())
+    available_cohorts <- cohort_info %>%
+      count(cohort_label, sort = TRUE) %>%
+      pull(cohort_label)
+    
+    updateCheckboxGroupInput(session, "selected_cohorts",
+                             choices = setNames(available_cohorts, available_cohorts),
+                             selected = NULL)  # Start with no cohorts selected
+  })
+  
+  # Cohort selection buttons
+  observeEvent(input$select_recent_cohorts, {
+    req(milestone_data())
+    cohort_info <- calculate_cohort_information(milestone_data())
+    recent_cohorts <- cohort_info %>%
+      count(cohort_label, sort = TRUE) %>%
+      head(2) %>%
+      pull(cohort_label)
+    updateCheckboxGroupInput(session, "selected_cohorts", selected = recent_cohorts)
+  })
+  
+  observeEvent(input$clear_cohorts, {
+    updateCheckboxGroupInput(session, "selected_cohorts", selected = character(0))
+  })
+  
+  # Cohort trend plot - now defaults to program baseline only
+  output$cohort_trend_plot <- renderPlotly({
+    req(milestone_data(), input$trend_subcompetency)
+    
+    create_cohort_trend_analysis(
+      milestone_data(),
+      selected_sub_competency = input$trend_subcompetency,
+      selected_cohorts = input$selected_cohorts  # Can be NULL or empty
+    )
+  })
   
   # =========================================================================
   # MILESTONE ANALYSIS OUTPUTS - TABLES

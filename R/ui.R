@@ -18,9 +18,42 @@ ui <- fluidPage(
   # Custom CSS backup
   tags$head(
     tags$style(HTML("
-      .btn-primary { background-color: #2C3E50 !important; border-color: #2C3E50 !important; }
-      .nav-tabs > li.active > a { background-color: #2C3E50 !important; color: white !important; }
-    ")),
+  .btn-primary { background-color: #2C3E50 !important; border-color: #2C3E50 !important; }
+  .nav-tabs > li.active > a { background-color: #2C3E50 !important; color: white !important; }
+  
+  /* Milestone reference table styling - FORCE narrow first column */
+  #milestone_reference_table {
+    border-collapse: separate !important;
+    border-spacing: 1px !important;
+    table-layout: fixed !important;
+    width: 100% !important;
+  }
+  
+  #milestone_reference_table td {
+    border: none !important;
+    padding: 0px !important;
+    vertical-align: middle !important;
+  }
+  
+  #milestone_reference_table tbody tr:hover {
+    background-color: transparent !important;
+  }
+  
+  /* FORCE Code column to be narrow */
+  #milestone_reference_table th:first-child,
+  #milestone_reference_table td:first-child {
+    width: 60px !important;
+    max-width: 60px !important;
+    min-width: 60px !important;
+    overflow: hidden !important;
+  }
+  
+  /* FORCE Description column to take remaining space */
+  #milestone_reference_table th:nth-child(2),
+  #milestone_reference_table td:nth-child(2) {
+    width: calc(100% - 60px) !important;
+  }
+")),
     tags$title("GME Milestone Visualization Platform")
   ),
   title = "GME Milestone Visualization Platform",
@@ -204,10 +237,10 @@ ui <- fluidPage(
                            column(12,
                                   div(class = "card",
                                       div(class = "card-header", 
-                                          h5(icon("chart-line"), "Additional Analysis")
+                                          h5(icon("list-alt"), "Milestone Reference Guide")
                                       ),
                                       div(class = "card-body",
-                                          p("Additional charts and analyses can be added here.")
+                                          DT::dataTableOutput("milestone_reference_table")
                                       )
                                   )
                            )
@@ -238,8 +271,9 @@ ui <- fluidPage(
                                  # Global threshold setting
                                  sliderInput("milestone_threshold", 
                                              "Proficiency Threshold:",
-                                             min = 1, max = 9, value = 7, step = 1,
-                                             post = " (Proficient)"),
+                                             min = 1, max = 9, value = 7, step = 1),
+                                 p("Scale: 1-2 Beginner, 3-4 Advanced Beginner, 5-6 Competent, 7-8 Proficient, 9 Expert", 
+                                   style = "font-size: 0.85em; color: #666; margin-top: 5px;"),
                                  
                                  # Period filter for readiness analyses
                                  selectInput(
@@ -329,83 +363,33 @@ ui <- fluidPage(
                          br(),
                          
                          # Section 3: Sub-Competency Progression Trends - MOVED CONTROLS TO TOP
+                         # Update the Milestone Analysis tab trend section
                          fluidRow(
-                           column(12,
-                                  div(class = "card",
-                                      div(class = "card-header", 
-                                          h5(icon("chart-line"), "Sub-Competency Progression Trends"),
-                                          p("Individual sub-competency progression vs period averages", 
-                                            style = "margin: 0; font-size: 0.9em; color: #666;")
-                                      ),
-                                      div(class = "card-body",
-                                          
-                                          # SINGLE sub-competency selector at top
-                                          fluidRow(
-                                            column(6,
-                                                   selectInput("trend_subcompetency",
-                                                               "Select Sub-Competency for Trend Analysis:",
-                                                               choices = c("Select sub-competency..." = ""),
-                                                               selected = "",
-                                                               width = "100%")
-                                            ),
-                                            column(6,
-                                                   div(style = "padding-top: 25px; font-size: 0.9em; color: #666;",
-                                                       "Comparison line shows average performance for that period across all sub-competencies")
-                                            )
-                                          ),
-                                          
-                                          # Period selection and options
-                                          fluidRow(
-                                            column(6,
-                                                   conditionalPanel(
-                                                     condition = "input.trend_subcompetency != ''",
-                                                     wellPanel(
-                                                       style = "background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 15px;",
-                                                       uiOutput("trend_period_checkboxes")
-                                                     )
-                                                   )
-                                            ),
-                                            column(6,
-                                                   conditionalPanel(
-                                                     condition = "input.trend_subcompetency != ''",
-                                                     checkboxInput(
-                                                       "show_total_average",
-                                                       "Show Total Average Line",
-                                                       value = TRUE
-                                                     )
-                                                   )
-                                            )
-                                          ),
-                                          
-                                          br(),
-                                          
-                                          # Show message when no sub-competency selected
-                                          conditionalPanel(
-                                            condition = "input.trend_subcompetency == null || input.trend_subcompetency == ''",
-                                            div(class = "alert alert-info", style = "text-align: center; margin-top: 20px;",
-                                                icon("info-circle"), 
-                                                " Select a sub-competency above to view progression trends.")
-                                          ),
-                                          
-                                          conditionalPanel(
-                                            condition = "input.trend_subcompetency != ''",
-                                            div(
-                                              class = "alert alert-info",
-                                              style = "margin-top: 10px; padding: 10px;",
-                                              icon("info-circle"), " ",
-                                              strong("Trend Analysis: "), 
-                                              "Select specific periods above to focus the analysis, or keep all selected for complete progression view. ",
-                                              "The comparison line shows average performance for that period across all sub-competencies."
-                                            )
-                                          ),
-                                          
-                                          # Show trend chart when sub-competency selected
-                                          conditionalPanel(
-                                            condition = "input.trend_subcompetency != null && input.trend_subcompetency != ''",
-                                            plotlyOutput("subcompetency_trend_chart", height = "500px")
-                                          )
-                                      )
+                           column(4,
+                                  h6("Training Progression Analysis:", style = "font-weight: bold;"),
+                                  
+                                  selectInput("trend_subcompetency", 
+                                              "Select Sub-Competency:",
+                                              choices = NULL),
+                                  
+                                  hr(),
+                                  
+                                  h6("Add Graduation Classes for Comparison:", style = "font-weight: bold; color: #7F8C8D;"),
+                                  p("The program average is always shown. Select classes below to compare:", 
+                                    style = "font-size: 0.9em; color: #7F8C8D;"),
+                                  
+                                  checkboxGroupInput("selected_cohorts",
+                                                     "Select Classes to Overlay:",
+                                                     choices = NULL),
+                                  
+                                  fluidRow(
+                                    column(6, actionButton("select_recent_cohorts", "Recent 2", class = "btn-sm btn-outline-secondary")),
+                                    column(6, actionButton("clear_cohorts", "Clear All", class = "btn-sm btn-outline-secondary"))
                                   )
+                           ),
+                           
+                           column(8,
+                                  plotlyOutput("cohort_trend_plot", height = "500px")
                            )
                          ),
                          

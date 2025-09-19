@@ -479,100 +479,13 @@ create_performance_heatmap <- function(data, metric = "median", sortable = TRUE)
 #' @param n_items Number of items to show
 #' @param focus_end_year Whether to focus on end-year evaluations only
 #' @return Data frame with improvement areas
+#' Identify Areas for Improvement - Period Specific (UPDATED VERSION)
 identify_improvement_areas <- function(data, n_items = 5, focus_end_year = TRUE) {
-  period_means <- calculate_period_level_means(data)
   
-  # Focus on End-Year evaluations if requested
-  if (focus_end_year) {
-    period_means <- period_means %>% filter(Period_Type == "Year-End")
-  }
-  
-  if (nrow(period_means) == 0) {
-    return(data.frame(
-      Sub_Competency = "No data",
-      Period_Level = "",
-      Mean_Score = "",
-      Performance_Context = "",
-      Residents = ""
-    ))
-  }
-  
-  # For each PGY level, find the lowest performing sub-competencies
-  improvement_areas <- period_means %>%
-    group_by(PGY_Level) %>%
-    slice_min(mean_score, n = ceiling(n_items/length(unique(period_means$PGY_Level)))) %>%
-    ungroup() %>%
-    head(n_items) %>%
-    mutate(
-      Mean_Score = sprintf("%.2f", mean_score),
-      Performance_Context = performance_context,
-      Residents = n_residents
-    ) %>%
-    arrange(PGY_Level, mean_score) %>%
-    select(Sub_Competency, period_level, Mean_Score, Performance_Context, Residents) %>%
-    rename(Period_Level = period_level)
-  
-  return(improvement_areas)
-}
-
-#' Identify Areas of Strength - Period Specific (Using Means)
-#'
-#' Creates a table showing highest performing sub-competencies for specific periods
-#'
-#' @param data Processed data from load_milestone_csv_data()
-#' @param n_items Number of items to show
-#' @param focus_end_year Whether to focus on end-year evaluations only
-#' @return Data frame with strength areas
-identify_strength_areas <- function(data, n_items = 5, focus_end_year = TRUE) {
-  period_means <- calculate_period_level_means(data)
-  
-  # Focus on End-Year evaluations if requested
-  if (focus_end_year) {
-    period_means <- period_means %>% filter(Period_Type == "Year-End")
-  }
-  
-  if (nrow(period_means) == 0) {
-    return(data.frame(
-      Sub_Competency = "No data",
-      Period_Level = "",
-      Mean_Score = "",
-      Performance_Context = "",
-      Residents = ""
-    ))
-  }
-  
-  # For each PGY level, find the highest performing sub-competencies
-  strength_areas <- period_means %>%
-    group_by(PGY_Level) %>%
-    slice_max(mean_score, n = ceiling(n_items/length(unique(period_means$PGY_Level)))) %>%
-    ungroup() %>%
-    head(n_items) %>%
-    mutate(
-      Mean_Score = sprintf("%.2f", mean_score),
-      Performance_Context = performance_context,
-      Residents = n_residents
-    ) %>%
-    arrange(PGY_Level, desc(mean_score)) %>%
-    select(Sub_Competency, period_level, Mean_Score, Performance_Context, Residents) %>%
-    rename(Period_Level = period_level)
-  
-  return(strength_areas)
-}
-
-#' Identify Areas for Improvement - With Custom Filters
-#'
-#' Creates a table showing lowest performing sub-competencies with custom period/level filters
-#'
-#' @param data Processed data from load_milestone_csv_data()
-#' @param n_items Number of items to show
-#' @param period_selection Period selection ("recent_end", "recent_mid", "total", or specific period)
-#' @param selected_pgy_levels Vector of PGY levels to include
-#' @return Data frame with improvement areas
-identify_improvement_areas_filtered <- function(data, n_items = 5, period_selection = "recent_end", selected_pgy_levels = NULL) {
   evaluation_data <- data$evaluations
   
-  # Filter by period
-  if (period_selection == "recent_end") {
+  # Filter for End-Year evaluations if requested
+  if (focus_end_year) {
     recent_period <- evaluation_data %>%
       filter(str_detect(Period, "Year-End|End-Year")) %>%
       arrange(desc(Period)) %>%
@@ -582,29 +495,12 @@ identify_improvement_areas_filtered <- function(data, n_items = 5, period_select
     if (length(recent_period) > 0) {
       evaluation_data <- evaluation_data %>% filter(Period == recent_period)
     }
-  } else if (period_selection == "recent_mid") {
-    recent_period <- evaluation_data %>%
-      filter(str_detect(Period, "Mid-Year")) %>%
-      arrange(desc(Period)) %>%
-      pull(Period) %>%
-      head(1)
-    
-    if (length(recent_period) > 0) {
-      evaluation_data <- evaluation_data %>% filter(Period == recent_period)
-    }
-  } else if (period_selection != "total") {
-    evaluation_data <- evaluation_data %>% filter(Period == period_selection)
-  }
-  
-  # Filter by PGY levels
-  if (!is.null(selected_pgy_levels) && length(selected_pgy_levels) > 0) {
-    evaluation_data <- evaluation_data %>% filter(PGY_Level %in% selected_pgy_levels)
   }
   
   if (nrow(evaluation_data) == 0) {
     return(data.frame(
-      Sub_Competency = "No data",
-      Period_Level = "",
+      Milestone_Description = "No data",
+      PGY_Level = "",
       Mean_Score = "",
       Performance_Context = "",
       Residents = ""
@@ -624,29 +520,170 @@ identify_improvement_areas_filtered <- function(data, n_items = 5, period_select
     group_by(PGY_Level) %>%
     slice_min(mean_score, n = ceiling(n_items/length(unique(.$PGY_Level)))) %>%
     ungroup() %>%
-    head(n_items) %>%
+    head(n_items)
+  
+  # JOIN WITH MILESTONE DEFINITIONS - SAME AS FILTERED VERSION
+  if (!is.null(data$milestone_structure) && !is.null(data$milestone_structure$definitions)) {
+    improvement_areas <- improvement_areas %>%
+      left_join(
+        data$milestone_structure$definitions %>% select(Sub_Competency, Milestone_Description),
+        by = "Sub_Competency"
+      ) %>%
+      mutate(
+        # Use descriptive text if available, otherwise use Sub_Competency
+        Milestone_Description = ifelse(
+          !is.na(Milestone_Description) & Milestone_Description != "",
+          Milestone_Description,
+          Sub_Competency
+        )
+      )
+  } else {
+    # Fallback if milestone definitions not available
+    improvement_areas <- improvement_areas %>%
+      mutate(Milestone_Description = Sub_Competency)
+  }
+  
+  # Final formatting - SAME COLUMNS AS FILTERED VERSION
+  improvement_areas <- improvement_areas %>%
     mutate(
-      Period_Level = paste("Filtered", PGY_Level),
       Mean_Score = sprintf("%.2f", mean_score),
       Performance_Context = get_performance_context(mean_score),
       Residents = n_residents
     ) %>%
     arrange(PGY_Level, mean_score) %>%
-    select(Sub_Competency, Period_Level, Mean_Score, Performance_Context, Residents)
+    select(Milestone_Description, PGY_Level, Mean_Score, Performance_Context, Residents)
   
   return(improvement_areas)
 }
 
-#' Identify Areas of Strength - With Custom Filters
+
+
+
+#' Identify Areas of Strength - Period Specific (Using Means)
 #'
-#' Creates a table showing highest performing sub-competencies with custom period/level filters
+#' Creates a table showing highest performing sub-competencies for specific periods
+#'
+#' @param data Processed data from load_milestone_csv_data()
+#' @param n_items Number of items to show
+#' @param focus_end_year Whether to focus on end-year evaluations only
+#' @return Data frame with strength areas
+identify_strength_areas <- function(data, n_items = 5, focus_end_year = TRUE) {
+  
+  evaluation_data <- data$evaluations
+  
+  # Filter for End-Year evaluations if requested
+  if (focus_end_year) {
+    recent_period <- evaluation_data %>%
+      filter(str_detect(Period, "Year-End|End-Year")) %>%
+      arrange(desc(Period)) %>%
+      pull(Period) %>%
+      head(1)
+    
+    if (length(recent_period) > 0) {
+      evaluation_data <- evaluation_data %>% filter(Period == recent_period)
+    }
+  }
+  
+  if (nrow(evaluation_data) == 0) {
+    return(data.frame(
+      Milestone_Description = "No data",
+      PGY_Level = "",
+      Mean_Score = "",
+      Performance_Context = "",
+      Residents = ""
+    ))
+  }
+  
+  # Calculate means and find highest performers
+  strength_areas <- evaluation_data %>%
+    group_by(PGY_Level, Sub_Competency, Competency) %>%
+    summarise(
+      mean_score = mean(Rating, na.rm = TRUE),
+      n_residents = n_distinct(Resident_Name),
+      n_evaluations = n(),
+      .groups = "drop"
+    ) %>%
+    filter(n_evaluations >= 3) %>%
+    group_by(PGY_Level) %>%
+    slice_max(mean_score, n = ceiling(n_items/length(unique(.$PGY_Level)))) %>%
+    ungroup() %>%
+    head(n_items)
+  
+  # JOIN WITH MILESTONE DEFINITIONS - SAME AS FILTERED VERSION
+  if (!is.null(data$milestone_structure) && !is.null(data$milestone_structure$definitions)) {
+    strength_areas <- strength_areas %>%
+      left_join(
+        data$milestone_structure$definitions %>% select(Sub_Competency, Milestone_Description),
+        by = "Sub_Competency"
+      ) %>%
+      mutate(
+        # Use descriptive text if available, otherwise use Sub_Competency
+        Milestone_Description = ifelse(
+          !is.na(Milestone_Description) & Milestone_Description != "",
+          Milestone_Description,
+          Sub_Competency
+        )
+      )
+  } else {
+    # Fallback if milestone definitions not available
+    strength_areas <- strength_areas %>%
+      mutate(Milestone_Description = Sub_Competency)
+  }
+  
+  # Final formatting - SAME COLUMNS AS FILTERED VERSION
+  strength_areas <- strength_areas %>%
+    mutate(
+      Mean_Score = sprintf("%.2f", mean_score),
+      Performance_Context = get_performance_context(mean_score),
+      Residents = n_residents
+    ) %>%
+    arrange(PGY_Level, desc(mean_score)) %>%
+    select(Milestone_Description, PGY_Level, Mean_Score, Performance_Context, Residents)
+  
+  return(strength_areas)
+}
+
+
+#' Joins milestone definitions to add descriptive text
+add_milestone_descriptions <- function(table_data, milestone_definitions) {
+  if (is.null(milestone_definitions) || nrow(milestone_definitions) == 0) {
+    return(table_data)
+  }
+  
+  # Join with milestone definitions to get descriptive text
+  enhanced_table <- table_data %>%
+    left_join(
+      milestone_definitions %>% select(Sub_Competency, Milestone_Description),
+      by = "Sub_Competency"
+    ) %>%
+    # Replace Sub_Competency with description if available
+    mutate(
+      Sub_Competency = ifelse(
+        !is.na(Milestone_Description) & Milestone_Description != "",
+        Milestone_Description,
+        Sub_Competency
+      ),
+      # Remove "Filtered" from Period_Level
+      Period_Level = str_replace(Period_Level, "^Filtered\\s+", "")
+    ) %>%
+    select(-Milestone_Description)  # Remove the temporary column
+  
+  return(enhanced_table)
+}
+
+#' Identify Areas for Improvement - With Custom Filters
+#'
+#' Creates a table showing lowest performing sub-competencies with custom period/level filters
 #'
 #' @param data Processed data from load_milestone_csv_data()
 #' @param n_items Number of items to show
 #' @param period_selection Period selection ("recent_end", "recent_mid", "total", or specific period)
 #' @param selected_pgy_levels Vector of PGY levels to include
-#' @return Data frame with strength areas
-identify_strength_areas_filtered <- function(data, n_items = 5, period_selection = "recent_end", selected_pgy_levels = NULL) {
+#' @return Data frame with improvement areas
+#' Identify Areas for Improvement - With Custom Filters
+#' Identify Areas for Improvement - With Custom Filters (FIXED VERSION)
+identify_improvement_areas_filtered <- function(data, n_items = 5, period_selection = "recent_end", selected_pgy_levels = NULL) {
+  
   evaluation_data <- data$evaluations
   
   # Filter by period
@@ -670,7 +707,11 @@ identify_strength_areas_filtered <- function(data, n_items = 5, period_selection
     if (length(recent_period) > 0) {
       evaluation_data <- evaluation_data %>% filter(Period == recent_period)
     }
-  } else if (period_selection != "total") {
+  } else if (period_selection == "total") {
+    # For "total" (All Periods Combined), don't filter by period - use ALL data
+    # evaluation_data remains unchanged
+  } else {
+    # Specific period selected
     evaluation_data <- evaluation_data %>% filter(Period == period_selection)
   }
   
@@ -681,8 +722,117 @@ identify_strength_areas_filtered <- function(data, n_items = 5, period_selection
   
   if (nrow(evaluation_data) == 0) {
     return(data.frame(
-      Sub_Competency = "No data",
-      Period_Level = "",
+      Milestone_Description = "No data",
+      PGY_Level = "",
+      Mean_Score = "",
+      Performance_Context = "",
+      Residents = ""
+    ))
+  }
+  
+  # Calculate means and find lowest performers
+  improvement_areas <- evaluation_data %>%
+    group_by(PGY_Level, Sub_Competency, Competency) %>%
+    summarise(
+      mean_score = mean(Rating, na.rm = TRUE),
+      n_residents = n_distinct(Resident_Name),
+      n_evaluations = n(),
+      .groups = "drop"
+    ) %>%
+    filter(n_evaluations >= 3) %>%
+    group_by(PGY_Level) %>%
+    slice_min(mean_score, n = ceiling(n_items/length(unique(.$PGY_Level)))) %>%
+    ungroup() %>%
+    head(n_items)
+  
+  # JOIN WITH MILESTONE DEFINITIONS - FIXED PATH
+  if (!is.null(data$milestone_structure) && !is.null(data$milestone_structure$definitions)) {
+    improvement_areas <- improvement_areas %>%
+      left_join(
+        data$milestone_structure$definitions %>% select(Sub_Competency, Milestone_Description),
+        by = "Sub_Competency"
+      ) %>%
+      mutate(
+        # Use descriptive text if available, otherwise use Sub_Competency
+        Milestone_Description = ifelse(
+          !is.na(Milestone_Description) & Milestone_Description != "",
+          Milestone_Description,
+          Sub_Competency
+        )
+      )
+  } else {
+    # Fallback if milestone definitions not available
+    improvement_areas <- improvement_areas %>%
+      mutate(Milestone_Description = Sub_Competency)
+  }
+  
+  # Final formatting
+  improvement_areas <- improvement_areas %>%
+    mutate(
+      Mean_Score = sprintf("%.2f", mean_score),
+      Performance_Context = get_performance_context(mean_score),
+      Residents = n_residents
+    ) %>%
+    arrange(PGY_Level, mean_score) %>%
+    select(Milestone_Description, PGY_Level, Mean_Score, Performance_Context, Residents)
+  
+  return(improvement_areas)
+}
+
+
+
+#' Identify Areas of Strength - With Custom Filters
+#'
+#' Creates a table showing highest performing sub-competencies with custom period/level filters
+#'
+#' @param data Processed data from load_milestone_csv_data()
+#' @param n_items Number of items to show
+#' @param period_selection Period selection ("recent_end", "recent_mid", "total", or specific period)
+#' @param selected_pgy_levels Vector of PGY levels to include
+#' @return Data frame with strength areas
+#' Identify Areas of Strength - With Custom Filters (FIXED VERSION)
+identify_strength_areas_filtered <- function(data, n_items = 5, period_selection = "recent_end", selected_pgy_levels = NULL) {
+  
+  evaluation_data <- data$evaluations
+  
+  # Filter by period
+  if (period_selection == "recent_end") {
+    recent_period <- evaluation_data %>%
+      filter(str_detect(Period, "Year-End|End-Year")) %>%
+      arrange(desc(Period)) %>%
+      pull(Period) %>%
+      head(1)
+    
+    if (length(recent_period) > 0) {
+      evaluation_data <- evaluation_data %>% filter(Period == recent_period)
+    }
+  } else if (period_selection == "recent_mid") {
+    recent_period <- evaluation_data %>%
+      filter(str_detect(Period, "Mid-Year")) %>%
+      arrange(desc(Period)) %>%
+      pull(Period) %>%
+      head(1)
+    
+    if (length(recent_period) > 0) {
+      evaluation_data <- evaluation_data %>% filter(Period == recent_period)
+    }
+  } else if (period_selection == "total") {
+    # For "total" (All Periods Combined), don't filter by period - use ALL data
+    # evaluation_data remains unchanged
+  } else {
+    # Specific period selected
+    evaluation_data <- evaluation_data %>% filter(Period == period_selection)
+  }
+  
+  # Filter by PGY levels
+  if (!is.null(selected_pgy_levels) && length(selected_pgy_levels) > 0) {
+    evaluation_data <- evaluation_data %>% filter(PGY_Level %in% selected_pgy_levels)
+  }
+  
+  if (nrow(evaluation_data) == 0) {
+    return(data.frame(
+      Milestone_Description = "No data",
+      PGY_Level = "",
       Mean_Score = "",
       Performance_Context = "",
       Residents = ""
@@ -702,19 +852,41 @@ identify_strength_areas_filtered <- function(data, n_items = 5, period_selection
     group_by(PGY_Level) %>%
     slice_max(mean_score, n = ceiling(n_items/length(unique(.$PGY_Level)))) %>%
     ungroup() %>%
-    head(n_items) %>%
+    head(n_items)
+  
+  # JOIN WITH MILESTONE DEFINITIONS - FIXED PATH
+  if (!is.null(data$milestone_structure) && !is.null(data$milestone_structure$definitions)) {
+    strength_areas <- strength_areas %>%
+      left_join(
+        data$milestone_structure$definitions %>% select(Sub_Competency, Milestone_Description),
+        by = "Sub_Competency"
+      ) %>%
+      mutate(
+        # Use descriptive text if available, otherwise use Sub_Competency
+        Milestone_Description = ifelse(
+          !is.na(Milestone_Description) & Milestone_Description != "",
+          Milestone_Description,
+          Sub_Competency
+        )
+      )
+  } else {
+    # Fallback if milestone definitions not available
+    strength_areas <- strength_areas %>%
+      mutate(Milestone_Description = Sub_Competency)
+  }
+  
+  # Final formatting
+  strength_areas <- strength_areas %>%
     mutate(
-      Period_Level = paste("Filtered", PGY_Level),
       Mean_Score = sprintf("%.2f", mean_score),
       Performance_Context = get_performance_context(mean_score),
       Residents = n_residents
     ) %>%
     arrange(PGY_Level, desc(mean_score)) %>%
-    select(Sub_Competency, Period_Level, Mean_Score, Performance_Context, Residents)
+    select(Milestone_Description, PGY_Level, Mean_Score, Performance_Context, Residents)
   
   return(strength_areas)
 }
-
 # ===================================================================
 # COMPLETE create_multi_level_spider_plot Function
 # Add this to your R/program_visualization_enhanced.R file
@@ -882,4 +1054,72 @@ create_multi_level_spider_plot <- function(data, period_type = "recent_end",
     )
   
   return(fig)
+}
+
+#' Create Milestone Reference Table
+#' 
+#' Creates a formatted table showing milestone codes and descriptions
+#' with full row color coding by competency
+#'
+#' @param data Processed data from load_milestone_csv_data()
+#' @return Data frame formatted for DT display
+create_milestone_reference_table <- function(data) {
+  
+  if (is.null(data$milestone_structure) || is.null(data$milestone_structure$definitions)) {
+    return(data.frame(
+      Code = "No data available",
+      Description = ""
+    ))
+  }
+  
+  # Define competency colors (lighter versions for row backgrounds)
+  competency_colors <- c(
+    "Patient Care" = "#FADBD8",                           # Light red
+    "Medical Knowledge" = "#D6EAF8",                      # Light blue  
+    "Practice-Based Learning and Improvement" = "#D5F4E6", # Light green
+    "Interpersonal and Communication Skills" = "#FDEBD0",  # Light orange
+    "Professionalism" = "#EBDEF0",                        # Light purple
+    "Systems-Based Practice" = "#D0ECE7"                  # Light teal
+  )
+  
+  # Process milestone definitions
+  reference_table <- data$milestone_structure$definitions %>%
+    filter(!is.na(Sub_Competency), !is.na(Milestone_Description)) %>%
+    mutate(
+      # Clean up competency names for color matching
+      Competency_Clean = case_when(
+        str_detect(Competency, "Patient Care") ~ "Patient Care",
+        str_detect(Competency, "Medical Knowledge") ~ "Medical Knowledge", 
+        str_detect(Competency, "Practice.*Learning") ~ "Practice-Based Learning and Improvement",
+        str_detect(Competency, "Interpersonal.*Communication") ~ "Interpersonal and Communication Skills",
+        str_detect(Competency, "Professionalism") ~ "Professionalism",
+        str_detect(Competency, "Systems.*Practice") ~ "Systems-Based Practice",
+        TRUE ~ Competency
+      ),
+      
+      # Get color for each competency
+      Row_Color = competency_colors[Competency_Clean],
+      Row_Color = ifelse(is.na(Row_Color), "#F8F9FA", Row_Color),
+      
+      # Format milestone code - much simpler and narrower
+      Code_Formatted = paste0(
+        '<div style="background-color: ', Row_Color, 
+        '; padding: 8px; margin: -8px; font-weight: bold; color: #2C3E50; font-family: monospace; text-align: center; white-space: nowrap;">',
+        Sub_Competency, '</div>'
+      ),
+      
+      # Format description with same background - remove competency prefix to save space
+      Description_Formatted = paste0(
+        '<div style="background-color: ', Row_Color, 
+        '; padding: 8px; margin: -8px; color: #2C3E50; line-height: 1.3;">',
+        str_trim(Milestone_Description), '</div>'
+      )
+    ) %>%
+    arrange(Competency_Clean, Sub_Competency) %>%
+    select(
+      Code = Code_Formatted, 
+      Description = Description_Formatted
+    )
+  
+  return(reference_table)
 }
