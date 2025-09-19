@@ -1045,31 +1045,51 @@ server <- function(input, output, session) {
     paste0(individual_stats()$percentile, "%")
   })
   
-  output$individual_spider_enhanced <- renderPlotly({
+  # Add this after line 673 in your server.R, in the individual assessment section:
+  output$resident_info_display <- renderUI({
     req(milestone_data(), input$individual_resident, input$individual_level)
     
-    tryCatch({
-      # Use the enhanced spider plot function from the artifact
-      create_individual_spider_enhanced(milestone_data(), input$individual_resident, input$individual_level)
-    }, error = function(e) {
-      plot_ly() %>% 
-        add_annotations(text = paste("Error:", e$message), 
-                        x = 0.5, y = 0.5, showarrow = FALSE)
-    })
-  })
-  
-  output$individual_trend_enhanced <- renderPlotly({
-    req(milestone_data(), input$individual_resident)
+    if (is.null(input$individual_level) || input$individual_level == "all") {
+      info_text <- "Showing all evaluations across all periods"
+    } else {
+      level_parts <- strsplit(input$individual_level, "\\|\\|\\|")[[1]]
+      if (length(level_parts) == 2) {
+        info_text <- paste("Evaluation Period:", level_parts[1], "<br>",
+                           "PGY Level:", level_parts[2])
+      } else {
+        info_text <- "Selected evaluation level"
+      }
+    }
     
-    tryCatch({
-      create_individual_trend_enhanced(milestone_data(), input$individual_resident)
-    }, error = function(e) {
-      plot_ly() %>% 
-        add_annotations(text = paste("Error:", e$message), 
-                        x = 0.5, y = 0.5, showarrow = FALSE)
-    })
+    HTML(paste0("<small><strong>Current Selection:</strong><br>", info_text, "</small>"))
   })
   
+  # Add this too in the individual assessment section:
+  output$individual_detail_table <- DT::renderDataTable({
+    req(milestone_data(), input$individual_resident, input$individual_level)
+    
+    # Simple version for now - you can enhance this later
+    resident_data <- milestone_data()$evaluations[milestone_data()$evaluations$Resident_Name == input$individual_resident, ]
+    
+    if (nrow(resident_data) == 0) {
+      return(data.frame(Message = "No data available for selected resident"))
+    }
+    
+    # Basic summary by sub-competency
+    detail_summary <- resident_data %>%
+      group_by(Competency, Sub_Competency) %>%
+      summarise(
+        Mean_Score = round(mean(Rating, na.rm = TRUE), 2),
+        Evaluations = n(),
+        Score_Range = paste0(min(Rating, na.rm = TRUE), "-", max(Rating, na.rm = TRUE)),
+        .groups = "drop"
+      )
+    
+    detail_summary
+  }, options = list(pageLength = 15, scrollX = TRUE, scrollY = "400px"))
+
+  
+
   # Additional outputs would go here...
   
   # =========================================================================

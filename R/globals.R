@@ -10,7 +10,6 @@ library(data.table)
 # Source the helper functions
 source("R/helpers.R")  # Your existing data loader
 source("R/program_visualization_enhanced.R")  # New program visualizations
-#source("R/individual_visualization_enhanced.R")  # New individual visualizations
 source("R/milestone_analysis.R")
 source("R/individual_assessment_enhanced.R")
 
