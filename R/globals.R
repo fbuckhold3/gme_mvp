@@ -5,6 +5,7 @@ library(dplyr)
 library(tidyr)
 library(DT)
 library(plotly)
+library(data.table)
 
 # Source the helper functions
 source("R/helpers.R")  # Your existing data loader

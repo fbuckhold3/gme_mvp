@@ -20,12 +20,19 @@ load_milestone_csv_data <- function(file_paths) {
   cat("Loading", length(file_paths), "CSV files...\n")
   
   # Read and combine all CSV files
+  # In your load_milestone_csv_data function, replace the file reading section:
   data_list <- lapply(file_paths, function(x) {
     tryCatch({
       cat("Reading:", basename(x), "\n")
-      df <- read.csv(x, stringsAsFactors = FALSE)
       
-      # Clean column names (handle spaces)
+      # Use data.table::fread for faster reading
+      if (requireNamespace("data.table", quietly = TRUE)) {
+        df <- data.table::fread(x, data.table = FALSE)
+      } else {
+        df <- read.csv(x, stringsAsFactors = FALSE)
+      }
+      
+      # Clean column names (your existing code)
       names(df) <- gsub("\\s+", ".", names(df))
       names(df) <- gsub("\\.+", ".", names(df))
       names(df) <- gsub("\\.$", "", names(df))
