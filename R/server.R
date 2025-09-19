@@ -732,7 +732,6 @@ server <- function(input, output, session) {
   })
   
   # Cohort selection buttons
-  # Update cohort choices when data loads
   observeEvent(milestone_data(), {
     req(milestone_data())
     
@@ -742,10 +741,15 @@ server <- function(input, output, session) {
                       choices = setNames(subcompetencies, subcompetencies),
                       selected = subcompetencies[1])
     
-    # Calculate and update cohort choices
+    # Calculate and update cohort choices - SORT BY YEAR
     cohort_info <- calculate_cohort_information(milestone_data())
     available_cohorts <- cohort_info %>%
       count(cohort_label, sort = TRUE) %>%
+      mutate(
+        # Extract year from "Class of YYYY" for sorting
+        graduation_year = as.numeric(str_extract(cohort_label, "\\d{4}"))
+      ) %>%
+      arrange(desc(graduation_year)) %>%  # Most recent first
       pull(cohort_label)
     
     updateCheckboxGroupInput(session, "selected_cohorts",
@@ -759,6 +763,8 @@ server <- function(input, output, session) {
     cohort_info <- calculate_cohort_information(milestone_data())
     recent_cohorts <- cohort_info %>%
       count(cohort_label, sort = TRUE) %>%
+      mutate(graduation_year = as.numeric(str_extract(cohort_label, "\\d{4}"))) %>%
+      arrange(desc(graduation_year)) %>%  # Most recent first
       head(2) %>%
       pull(cohort_label)
     updateCheckboxGroupInput(session, "selected_cohorts", selected = recent_cohorts)

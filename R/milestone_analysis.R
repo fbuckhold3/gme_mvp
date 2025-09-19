@@ -2,6 +2,76 @@
 # R/milestone_analysis.R - Enhanced Milestone Analysis Functions
 # =============================================================================
 
+#' Calculate Total Graduation Readiness (Aggregate of All Years)
+#' 
+#' Properly calculates graduation readiness by getting final End-Year assessment
+#' for each resident across all graduation years, avoiding double counting
+#'
+#' @param data Processed data from load_milestone_csv_data()
+#' @param threshold Minimum score threshold
+#' @param competency_filter Specific competency or "all"
+#' @return Data frame with total graduation readiness metrics
+calculate_total_graduation_readiness <- function(data, threshold = 7, competency_filter = "all") {
+  
+  evaluation_data <- data$evaluations
+  
+  # Find the highest PGY level (graduating class)
+  max_pgy <- evaluation_data %>%
+    pull(PGY_Level) %>%
+    str_extract("\\d+") %>%
+    as.numeric() %>%
+    max(na.rm = TRUE)
+  
+  graduating_level <- paste0("PGY-", max_pgy)
+  
+  # Get ONLY the final End-Year assessment for each resident
+  # This avoids the double-counting issue
+  final_assessments <- evaluation_data %>%
+    filter(
+      PGY_Level == graduating_level,
+      str_detect(Period, "Year-End|End-Year")
+    ) %>%
+    # For each resident and sub-competency, get their MOST RECENT End-Year assessment
+    group_by(Resident_Name, Sub_Competency) %>%
+    arrange(desc(Period)) %>%
+    slice_head(n = 1) %>%
+    ungroup()
+  
+  # Apply competency filter
+  if (competency_filter != "all") {
+    final_assessments <- final_assessments %>% filter(Competency == competency_filter)
+  }
+  
+  # Calculate metrics - this now represents true "final" graduation readiness
+  readiness_metrics <- final_assessments %>%
+    group_by(Sub_Competency, Competency) %>%
+    summarise(
+      total_residents = n_distinct(Resident_Name),
+      total_evaluations = n(),
+      below_threshold = sum(Rating < threshold, na.rm = TRUE),
+      at_or_above_threshold = sum(Rating >= threshold, na.rm = TRUE),
+      mean_score = mean(Rating, na.rm = TRUE),
+      median_score = median(Rating, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    filter(total_evaluations >= 3) %>%
+    mutate(
+      percent_below_threshold = (below_threshold / total_evaluations) * 100,
+      percent_ready = ((total_evaluations - below_threshold) / total_evaluations) * 100,
+      readiness_category = case_when(
+        percent_below_threshold < 2.5 ~ "Excellent (<2.5%)",
+        percent_below_threshold < 5.0 ~ "Good (2.5-5%)",
+        percent_below_threshold < 7.5 ~ "Concerning (5-7.5%)",
+        TRUE ~ "High Risk (>7.5%)"
+      ),
+      graduating_class = graduating_level,
+      threshold_used = threshold
+    ) %>%
+    arrange(desc(percent_below_threshold))
+  
+  return(readiness_metrics)
+}
+
 #' Calculate Period-Specific Means for Trend Comparison
 #'
 #' Calculates mean scores for each sub-competency at each specific period/PGY combination
@@ -54,6 +124,12 @@ calculate_period_specific_means <- function(data) {
 calculate_graduation_readiness_enhanced <- function(data, threshold = 7, period_filter = "latest_year_end", 
                                                     competency_filter = "all", show_by_period = FALSE) {
   
+  # For "all" periods, use the specialized total calculation
+  if (period_filter == "all" && !show_by_period) {
+    return(calculate_total_graduation_readiness(data, threshold, competency_filter))
+  }
+  
+  # Rest of your existing function remains the same for specific periods
   evaluation_data <- data$evaluations
   
   # Find the highest PGY level (graduating class)
@@ -65,33 +141,28 @@ calculate_graduation_readiness_enhanced <- function(data, threshold = 7, period_
   
   graduating_level <- paste0("PGY-", max_pgy)
   
-  # MODIFIED: Filter for ONLY final End-Year assessments across multiple graduation years
+  # Filter to graduating residents only
+  graduating_data <- evaluation_data %>%
+    filter(PGY_Level == graduating_level)
+  
+  # Apply period filter
   if (period_filter == "latest_year_end") {
-    graduating_data <- evaluation_data %>%
-      filter(
-        PGY_Level == graduating_level,
-        str_detect(Period, "Year-End|End-Year")  # Only End-Year assessments
-      ) %>%
-      # Group by academic year and resident, take only the final (most recent) assessment
-      group_by(Resident_Name, str_extract(Period, "^\\d{4}-\\d{4}")) %>%
+    # Get the most recent End-Year evaluation for EACH resident
+    graduating_data <- graduating_data %>%
+      filter(str_detect(Period, "Year-End|End-Year")) %>%
+      group_by(Resident_Name, Sub_Competency) %>%
       arrange(desc(Period)) %>%
       slice_head(n = 1) %>%
       ungroup()
-  } else {
-    # For other period filters, first filter by graduating level
-    graduating_data <- evaluation_data %>%
-      filter(PGY_Level == graduating_level)
-    
-    # Then apply period filter
-    if (period_filter != "all") {
-      graduating_data <- graduating_data %>% filter(Period == period_filter)
-    }
+  } else if (period_filter != "all") {
+    graduating_data <- graduating_data %>% filter(Period == period_filter)
   }
   
   # Apply competency filter
   if (competency_filter != "all") {
     graduating_data <- graduating_data %>% filter(Competency == competency_filter)
   }
+  
   
   # Calculate metrics - either by period or overall
   if (show_by_period && period_filter == "all") {
