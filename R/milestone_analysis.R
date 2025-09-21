@@ -1022,3 +1022,41 @@ calculate_cohort_information <- function(data) {
   
   return(cohort_data)
 }
+
+#' Get Available Year-End Periods
+#'
+#' @param data Processed data from load_milestone_csv_data()
+#' @return Vector of available Year-End periods
+get_yearend_periods <- function(data) {
+  periods <- data$evaluations %>%
+    filter(str_detect(Period, "Year-End|End-Year")) %>%
+    pull(Period) %>%
+    unique() %>%
+    sort(decreasing = TRUE)  # Most recent first
+  
+  return(periods)
+}
+
+#' Get All Available Periods for Selection
+#'
+#' @param data Processed data from load_milestone_csv_data()
+#' @return Named list of period choices
+get_all_period_choices <- function(data) {
+  
+  # Get Year-End periods
+  yearend_periods <- get_yearend_periods(data)
+  
+  # Create choices list
+  choices <- list(
+    "All Periods" = "all",
+    "Latest Year-End" = "latest_year_end"
+  )
+  
+  # Add individual Year-End periods
+  if (length(yearend_periods) > 0) {
+    yearend_choices <- setNames(yearend_periods, paste0("Year-End: ", yearend_periods))
+    choices <- c(choices, yearend_choices)
+  }
+  
+  return(choices)
+}
