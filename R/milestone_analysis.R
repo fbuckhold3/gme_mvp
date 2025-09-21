@@ -972,3 +972,53 @@ create_cohort_trend_analysis <- function(data, selected_sub_competency, selected
   
   return(fig)
 }
+
+#' Calculate Cohort Information
+#' 
+#' Determines graduation years and cohorts based on current PGY level and academic year
+#' 
+#' @param data Processed data from load_milestone_csv_data()
+#' @return Data frame with cohort information
+calculate_cohort_information <- function(data) {
+  
+  evaluation_data <- data$evaluations
+  
+  # Extract program length from data (highest PGY level)
+  max_pgy <- evaluation_data %>%
+    mutate(pgy_num = as.numeric(str_extract(PGY_Level, "\\d+"))) %>%
+    pull(pgy_num) %>%
+    max(na.rm = TRUE)
+  
+  # Calculate cohorts
+  cohort_data <- evaluation_data %>%
+    mutate(
+      # Extract academic year and PGY number
+      academic_year = str_extract(Period, "^\\d{4}-\\d{4}"),
+      pgy_num = as.numeric(str_extract(PGY_Level, "\\d+")),
+      start_year = as.numeric(str_extract(academic_year, "^\\d{4}"))
+    ) %>%
+    filter(!is.na(academic_year), !is.na(pgy_num)) %>%
+    mutate(
+      # Calculate graduation year: start_year + (max_pgy - current_pgy)
+      graduation_year = start_year + (max_pgy - pgy_num),
+      cohort_label = paste0("Class of ", graduation_year + 1),  # +1 because they graduate in spring
+      
+      # Create period-level identifier for tracking progression
+      period_level = paste(str_extract(Period, "(Mid-Year|Year-End)"), PGY_Level),
+      
+      # Calculate what "year" this is in their training (1st year, 2nd year, etc.)
+      training_year = pgy_num,
+      
+      # Create a standardized period order for plotting
+      period_order = case_when(
+        str_detect(Period, "Mid-Year") ~ (pgy_num - 1) * 2 + 1,
+        str_detect(Period, "Year-End") ~ (pgy_num - 1) * 2 + 2,
+        TRUE ~ 999
+      )
+    ) %>%
+    select(Resident_Name, academic_year, PGY_Level, pgy_num, graduation_year, 
+           cohort_label, period_level, training_year, period_order, Period, 
+           Sub_Competency, Rating, Competency)
+  
+  return(cohort_data)
+}
