@@ -905,6 +905,37 @@ create_multi_level_spider_plot <- function(data, period_type = "recent_end",
                                            selected_pgy_levels = NULL, show_medians = TRUE) {
   evaluation_data <- data$evaluations
   
+  # Check for minimum program-level data requirements FIRST
+  unique_residents <- n_distinct(evaluation_data$Resident_Name)
+  
+  if (unique_residents < 3) {
+    return(plot_ly() %>% 
+             add_annotations(
+               text = paste0(
+                 "<b>Insufficient Data for Program-Level Analysis</b><br><br>",
+                 "Current: ", unique_residents, " resident", ifelse(unique_residents == 1, "", "s"), "<br>",
+                 "Required: Minimum 3 residents for meaningful program comparisons<br><br>",
+                 "📊 <b>Recommendations:</b><br>",
+                 "• Use the <b>Individual Assessment</b> tab for resident-specific insights<br>",
+                 "• Return to this view once more evaluation data is available<br>",
+                 "• Consider longitudinal analysis as more residents complete evaluations"
+               ),
+               x = 0.5, y = 0.5, 
+               showarrow = FALSE,
+               font = list(size = 14, color = "#2c3e50"),
+               bgcolor = "rgba(248, 249, 250, 0.9)",
+               bordercolor = "#dee2e6",
+               borderwidth = 2
+             ) %>%
+             layout(
+               title = list(
+                 text = "Program Overview - Insufficient Data",
+                 font = list(size = 16, color = "#495057")
+               ),
+               margin = list(t = 60, b = 40, l = 40, r = 40)
+             ))
+  }
+  
   # Handle period selection
   if (period_type == "recent_end") {
     recent_period <- evaluation_data %>%
@@ -917,7 +948,19 @@ create_multi_level_spider_plot <- function(data, period_type = "recent_end",
       evaluation_data <- evaluation_data %>% filter(Period == recent_period)
       period_title <- paste("Most Recent End-Year (", recent_period, ")")
     } else {
-      period_title <- "No End-Year Data Available"
+      return(plot_ly() %>% 
+               add_annotations(
+                 text = paste0(
+                   "<b>No End-Year Data Available</b><br><br>",
+                   "No Year-End evaluation periods found in your data<br><br>",
+                   "📊 <b>Available Options:</b><br>",
+                   "• Try selecting 'Most Recent Mid-Year' instead<br>",
+                   "• Use 'All Periods Combined' for comprehensive view<br>",
+                   "• Check the Individual Assessment tab for available data"
+                 ),
+                 x = 0.5, y = 0.5, showarrow = FALSE,
+                 font = list(size = 14, color = "#2c3e50")
+               ))
     }
   } else if (period_type == "recent_mid") {
     recent_period <- evaluation_data %>%
@@ -930,15 +973,42 @@ create_multi_level_spider_plot <- function(data, period_type = "recent_end",
       evaluation_data <- evaluation_data %>% filter(Period == recent_period)
       period_title <- paste("Most Recent Mid-Year (", recent_period, ")")
     } else {
-      period_title <- "No Mid-Year Data Available"
+      return(plot_ly() %>% 
+               add_annotations(
+                 text = paste0(
+                   "<b>No Mid-Year Data Available</b><br><br>",
+                   "No Mid-Year evaluation periods found in your data<br><br>",
+                   "📊 <b>Available Options:</b><br>",
+                   "• Try selecting 'Most Recent End-Year' instead<br>",
+                   "• Use 'All Periods Combined' for comprehensive view<br>",
+                   "• Check the Individual Assessment tab for available data"
+                 ),
+                 x = 0.5, y = 0.5, showarrow = FALSE,
+                 font = list(size = 14, color = "#2c3e50")
+               ))
     }
   } else if (period_type == "all_periods" || period_type == "total") {
-    # Don't filter by period - use all data
     period_title <- "All Periods Combined"
   } else {
     # Specific period
     evaluation_data <- evaluation_data %>% filter(Period == period_type)
     period_title <- period_type
+    
+    if (nrow(evaluation_data) == 0) {
+      return(plot_ly() %>% 
+               add_annotations(
+                 text = paste0(
+                   "<b>No Data for Selected Period</b><br><br>",
+                   "Period '", period_type, "' contains no evaluation data<br><br>",
+                   "📊 <b>Suggestions:</b><br>",
+                   "• Try a different evaluation period<br>",
+                   "• Use 'All Periods Combined' to see available data<br>",
+                   "• Check data upload for this specific period"
+                 ),
+                 x = 0.5, y = 0.5, showarrow = FALSE,
+                 font = list(size = 14, color = "#2c3e50")
+               ))
+    }
   }
   
   # Filter by selected PGY levels
@@ -947,9 +1017,41 @@ create_multi_level_spider_plot <- function(data, period_type = "recent_end",
   }
   
   if (nrow(evaluation_data) == 0) {
-    return(plotly::plot_ly() %>% 
-             plotly::add_annotations(text = "No data available for selected filters", 
-                                     x = 0.5, y = 0.5, showarrow = FALSE))
+    return(plot_ly() %>% 
+             add_annotations(
+               text = paste0(
+                 "<b>No Data for Selected PGY Levels</b><br><br>",
+                 "Selected PGY levels contain no evaluation data<br>",
+                 "for the chosen period<br><br>",
+                 "📊 <b>Try:</b><br>",
+                 "• Selecting different PGY levels<br>",
+                 "• Using 'All Periods Combined'<br>",
+                 "• Checking the Individual Assessment tab"
+               ),
+               x = 0.5, y = 0.5, showarrow = FALSE,
+               font = list(size = 14, color = "#2c3e50")
+             ))
+  }
+  
+  # Check for sufficient data after filtering
+  filtered_residents <- n_distinct(evaluation_data$Resident_Name)
+  
+  if (filtered_residents < 2) {
+    return(plot_ly() %>% 
+             add_annotations(
+               text = paste0(
+                 "<b>Insufficient Data After Filtering</b><br><br>",
+                 "Only ", filtered_residents, " resident with data for:<br>",
+                 "Period: ", period_title, "<br>",
+                 "PGY Levels: ", paste(selected_pgy_levels, collapse = ", "), "<br><br>",
+                 "📊 <b>Recommendations:</b><br>",
+                 "• Include more PGY levels or periods<br>",
+                 "• Use the Individual Assessment tab<br>",
+                 "• Wait for additional evaluation data"
+               ),
+               x = 0.5, y = 0.5, showarrow = FALSE,
+               font = list(size = 14, color = "#2c3e50")
+             ))
   }
   
   # Calculate means by PGY level and sub-competency
@@ -958,15 +1060,27 @@ create_multi_level_spider_plot <- function(data, period_type = "recent_end",
     summarise(
       mean_score = mean(Rating, na.rm = TRUE),
       n_evaluations = n(),
+      n_residents = n_distinct(Resident_Name),
       .groups = "drop"
     ) %>%
     filter(n_evaluations >= 3) %>%
     arrange(Competency, Sub_Competency)
   
   if (nrow(spider_data) == 0) {
-    return(plotly::plot_ly() %>% 
-             plotly::add_annotations(text = "Insufficient data for visualization", 
-                                     x = 0.5, y = 0.5, showarrow = FALSE))
+    return(plot_ly() %>% 
+             add_annotations(
+               text = paste0(
+                 "<b>Insufficient Evaluation Data</b><br><br>",
+                 "Not enough evaluations per sub-competency<br>",
+                 "(minimum 3 required for reliable analysis)<br><br>",
+                 "📊 <b>Options:</b><br>",
+                 "• Include more evaluation periods<br>",
+                 "• Use the Individual Assessment tab<br>",
+                 "• Return when more evaluations are completed"
+               ),
+               x = 0.5, y = 0.5, showarrow = FALSE,
+               font = list(size = 14, color = "#2c3e50")
+             ))
   }
   
   # Create the spider plot

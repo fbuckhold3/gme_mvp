@@ -1128,83 +1128,126 @@ server <- function(input, output, session) {
   })
   
   # =========================================================================
-  # INDIVIDUAL RESIDENT OUTPUTS
+  # INDIVIDUAL ASSESSMENT - ENHANCED VERSION  
   # =========================================================================
   
-  # Individual summary table
-  output$individual_summary <- DT::renderDataTable({
-    req(milestone_data(), input$selected_resident)
-    
-    tryCatch({
-      # Parse the period filter
-      period_info <- parse_individual_period(input$individual_period)
-      
-      # For now, use just the period part for the summary table
-      summary_table <- create_individual_summary_table(
-        milestone_data(),
-        resident_name = input$selected_resident,
-        period_filter = period_info$period
-      )
-      summary_table
-    }, error = function(e) {
-      data.frame(Error = paste("Error:", e$message))
-    })
-  }, options = list(pageLength = 10, scrollX = TRUE))
+  # Update resident choices when data changes
+  observeEvent(milestone_data(), {
+    update_individual_residents(session, milestone_data())
+  })
   
-  # Individual spider plot
-  output$individual_spider <- renderPlotly({
-    req(milestone_data(), input$selected_resident)
+  # Update level choices when resident changes
+  observeEvent(input$individual_resident, {
+    req(milestone_data(), input$individual_resident)
+    update_individual_levels(session, milestone_data(), input$individual_resident)
+  })
+  
+  # Resident info display
+  output$resident_info_display <- renderUI({
+    req(milestone_data(), input$individual_resident, input$individual_level)
+    
+    if (input$individual_level == "all") {
+      info_text <- "Showing all evaluations across all periods"
+    } else {
+      level_parts <- strsplit(input$individual_level, "\\|\\|\\|")[[1]]
+      if (length(level_parts) == 2) {
+        info_text <- paste("Evaluation Period:", level_parts[1], "<br>",
+                           "PGY Level:", level_parts[2])
+      } else {
+        info_text <- "Selected evaluation level"
+      }
+    }
+    
+    HTML(paste0("<small><strong>Current Selection:</strong><br>", info_text, "</small>"))
+  })
+  
+  # Summary statistics for cards
+  individual_stats <- reactive({
+    req(milestone_data(), input$individual_resident, input$individual_level)
+    calculate_individual_summary_stats(milestone_data(), input$individual_resident, input$individual_level)
+  })
+  
+  # Card outputs
+  output$individual_total_evaluations <- renderText({
+    req(individual_stats())
+    as.character(individual_stats()$total_evaluations)
+  })
+  
+  output$individual_avg_score <- renderText({
+    req(individual_stats())
+    as.character(individual_stats()$individual_avg)
+  })
+  
+  output$program_avg_score <- renderText({
+    req(individual_stats())
+    as.character(individual_stats()$program_avg)
+  })
+  
+  output$individual_percentile <- renderText({
+    req(individual_stats())
+    paste0(individual_stats()$percentile, "%")
+  })
+  
+  # Enhanced spider plot
+  output$individual_spider_enhanced <- renderPlotly({
+    req(milestone_data(), input$individual_resident, input$individual_level)
     
     tryCatch({
-      period_info <- parse_individual_period(input$individual_period)
-      
-      create_individual_spider_plot(
-        milestone_data(),
-        resident_name = input$selected_resident,
-        period_filter = period_info$period
+      create_individual_spider_enhanced(
+        milestone_data(), 
+        input$individual_resident, 
+        input$individual_level
       )
     }, error = function(e) {
       plot_ly() %>% 
-        add_annotations(text = paste("Error:", e$message), 
-                        x = 0.5, y = 0.5, showarrow = FALSE)
+        add_annotations(text = paste("Error creating spider plot:", e$message), 
+                        x = 0.5, y = 0.5, showarrow = FALSE,
+                        font = list(color = "red"))
     })
   })
   
-  # Individual trend lines
-  output$individual_trends <- renderPlotly({
-    req(milestone_data(), input$selected_resident)
+  # Enhanced trend chart
+  output$individual_trend_enhanced <- renderPlotly({
+    req(milestone_data(), input$individual_resident)
     
     tryCatch({
-      create_individual_trend_plot(
-        milestone_data(),
-        resident_name = input$selected_resident,
-        competency_filter = input$individual_competency
+      create_individual_trend_enhanced(
+        milestone_data(), 
+        input$individual_resident
       )
     }, error = function(e) {
       plot_ly() %>% 
-        add_annotations(text = paste("Error:", e$message), 
-                        x = 0.5, y = 0.5, showarrow = FALSE)
+        add_annotations(text = paste("Error creating trend chart:", e$message), 
+                        x = 0.5, y = 0.5, showarrow = FALSE,
+                        font = list(color = "red"))
     })
   })
   
-  # Peer comparison
-  output$peer_comparison <- renderPlotly({
-    req(milestone_data(), input$selected_resident)
+  # Detailed performance table
+  output$individual_detail_table <- DT::renderDataTable({
+    req(milestone_data(), input$individual_resident, input$individual_level)
     
-    tryCatch({
-      period_info <- parse_individual_period(input$individual_period)
-      
-      create_individual_peer_comparison(
-        milestone_data(),
-        resident_name = input$selected_resident,
-        period_filter = period_info$period
-      )
-    }, error = function(e) {
-      plot_ly() %>% 
-        add_annotations(text = paste("Error:", e$message), 
-                        x = 0.5, y = 0.5, showarrow = FALSE)
-    })
-  })
+    detail_data <- create_individual_detail_table(
+      milestone_data(), 
+      input$individual_resident, 
+      input$individual_level
+    )
+    
+    if (nrow(detail_data) == 0) {
+      return(data.frame(Message = "No data available for selected criteria"))
+    }
+    
+    detail_data
+  }, options = list(
+    pageLength = 15,
+    scrollX = TRUE,
+    scrollY = "400px",
+    columnDefs = list(
+      list(targets = c(2, 3, 4), className = 'dt-center')
+    )
+  ), server = TRUE)
+  
+
   
   # =========================================================================
   # DATA OVERVIEW OUTPUTS

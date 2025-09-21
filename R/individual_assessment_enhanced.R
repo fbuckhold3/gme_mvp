@@ -192,7 +192,9 @@ update_individual_levels <- function(session, milestone_data, selected_resident)
                     selected = level_choices[2])  # Select the highest/most recent by default
 }
 
-# Create enhanced spider plot comparing individual vs program
+# ===== ENHANCED FUNCTIONS WITH DATA SUFFICIENCY FALLBACKS =====
+
+# Enhanced spider plot with fallback for insufficient comparison data
 create_individual_spider_enhanced <- function(milestone_data, selected_resident, selected_level) {
   if (is.null(milestone_data) || is.null(selected_resident) || selected_resident == "") {
     return(plot_ly() %>% 
@@ -242,27 +244,105 @@ create_individual_spider_enhanced <- function(milestone_data, selected_resident,
     }
   }
   
+  # Check for sufficient program data for comparison
   program_scores <- program_data %>%
     group_by(Sub_Competency, Competency) %>%
     summarise(
       program_mean = mean(Rating, na.rm = TRUE),
       program_n = n(),
+      unique_residents = n_distinct(Resident_Name),
       .groups = "drop"
     ) %>%
-    filter(program_n >= 5)  # Minimum sample size
+    filter(program_n >= 5 & unique_residents >= 3)  # Need multiple residents for meaningful comparison
   
-  # Merge individual and program scores
+  # Determine if we have sufficient data for comparison
+  has_comparison_data <- nrow(program_scores) > 0
+  
+  if (!has_comparison_data) {
+    # FALLBACK: Show individual data only with informative message
+    fig <- plot_ly(type = 'scatterpolar', fill = 'toself')
+    
+    # Individual performance only
+    fig <- fig %>% add_trace(
+      r = individual_scores$individual_score,
+      theta = individual_scores$Sub_Competency,
+      name = selected_resident,
+      line = list(color = '#2E86AB', width = 4),
+      marker = list(color = '#2E86AB', size = 10),
+      fillcolor = 'rgba(46, 134, 171, 0.2)',
+      hovertemplate = paste0(
+        '<b>%{theta}</b><br>',
+        selected_resident, ': %{r}<br>',
+        'Competency: ', individual_scores$Competency,
+        '<extra></extra>'
+      )
+    )
+    
+    # Layout for individual-only display
+    level_text <- if (selected_level == "all") "All Evaluations" else {
+      level_parts <- strsplit(selected_level, "\\|\\|\\|")[[1]]
+      if (length(level_parts) == 2) paste(level_parts[2], "-", level_parts[1]) else selected_level
+    }
+    
+    fig <- fig %>% layout(
+      polar = list(
+        radialaxis = list(
+          visible = TRUE,
+          range = c(1, 9),
+          tickmode = 'linear',
+          tick0 = 1,
+          dtick = 1,
+          showticklabels = TRUE,
+          tickfont = list(size = 10),
+          gridcolor = 'rgba(128, 128, 128, 0.3)'
+        ),
+        angularaxis = list(
+          tickfont = list(size = 11),
+          rotation = 90,
+          direction = "clockwise"
+        )
+      ),
+      title = list(
+        text = paste("Individual Performance:", selected_resident, "<br><sub>", level_text, "</sub><br>",
+                     "<span style='font-size: 12px; color: #666;'>Insufficient program data for comparison</span>"),
+        font = list(size = 14),
+        y = 0.95
+      ),
+      legend = list(
+        orientation = "h",
+        x = 0.5,
+        xanchor = "center",
+        y = -0.1,
+        font = list(size = 11)
+      ),
+      showlegend = TRUE,
+      margin = list(t = 100, b = 60, l = 60, r = 60),
+      annotations = list(
+        list(
+          text = "Tip: For program comparisons, visit the Program Overview tab",
+          showarrow = FALSE,
+          x = 0.5, y = -0.15,
+          xref = "paper", yref = "paper",
+          font = list(size = 11, color = "#666")
+        )
+      )
+    )
+    
+    return(fig)
+  }
+  
+  # NORMAL PATH: Show comparison when sufficient data exists
   combined_scores <- individual_scores %>%
     inner_join(program_scores, by = c("Sub_Competency", "Competency")) %>%
     arrange(Competency, Sub_Competency)
   
   if (nrow(combined_scores) == 0) {
     return(plot_ly() %>% 
-             add_annotations(text = "Insufficient data for comparison", 
+             add_annotations(text = "No matching data for comparison", 
                              x = 0.5, y = 0.5, showarrow = FALSE))
   }
   
-  # Create spider plot
+  # Create comparison spider plot
   fig <- plot_ly(type = 'scatterpolar', fill = 'toself')
   
   # Individual performance
@@ -301,7 +381,7 @@ create_individual_spider_enhanced <- function(milestone_data, selected_resident,
     )
   )
   
-  # Layout configuration
+  # Layout configuration for comparison
   level_text <- if (selected_level == "all") "All Evaluations" else {
     level_parts <- strsplit(selected_level, "\\|\\|\\|")[[1]]
     if (length(level_parts) == 2) paste(level_parts[2], "-", level_parts[1]) else selected_level
@@ -344,7 +424,8 @@ create_individual_spider_enhanced <- function(milestone_data, selected_resident,
   return(fig)
 }
 
-# Create enhanced trend chart showing progression vs program
+# Enhanced trend chart with fallback for insufficient program data
+# Enhanced trend chart with complete training timeline
 create_individual_trend_enhanced <- function(milestone_data, selected_resident) {
   if (is.null(milestone_data) || is.null(selected_resident) || selected_resident == "") {
     return(plot_ly() %>% 
@@ -361,7 +442,35 @@ create_individual_trend_enhanced <- function(milestone_data, selected_resident) 
                              x = 0.5, y = 0.5, showarrow = FALSE))
   }
   
-  # Create period ordering
+  # Determine the program length from the overall data
+  max_pgy <- milestone_data$evaluations %>%
+    pull(PGY_Level) %>%
+    str_extract("\\d+") %>%
+    as.numeric() %>%
+    max(na.rm = TRUE)
+  
+  min_pgy <- milestone_data$evaluations %>%
+    pull(PGY_Level) %>%
+    str_extract("\\d+") %>%
+    as.numeric() %>%
+    min(na.rm = TRUE)
+  
+  # Create complete timeline of all possible periods
+  complete_timeline <- data.frame(
+    PGY_Year = rep(min_pgy:max_pgy, each = 2),
+    Period_Type = rep(c("Mid-Year", "Year-End"), times = (max_pgy - min_pgy + 1))
+  ) %>%
+    mutate(
+      Period_Order = case_when(
+        Period_Type == "Mid-Year" ~ (PGY_Year - 1) * 2 + 1,
+        Period_Type == "Year-End" ~ (PGY_Year - 1) * 2 + 2
+      ),
+      Period_Label = paste0(Period_Type, " PGY-", PGY_Year),
+      PGY_Level = paste0("PGY-", PGY_Year)
+    ) %>%
+    arrange(Period_Order)
+  
+  # Process individual resident data
   resident_trend <- resident_data %>%
     mutate(
       PGY_Year = as.numeric(str_extract(PGY_Level, "\\d+")),
@@ -382,7 +491,7 @@ create_individual_trend_enhanced <- function(milestone_data, selected_resident) 
       Full_Period = paste(Period, "-", PGY_Level)
     ) %>%
     filter(Period_Order < 999) %>%
-    group_by(Period_Order, Period_Label, Full_Period, PGY_Level, Period, Period_Type) %>%
+    group_by(Period_Order, Period_Label, PGY_Level, Period, Period_Type, PGY_Year) %>%
     summarise(
       individual_score = mean(Rating, na.rm = TRUE),
       individual_n = n(),
@@ -390,13 +499,7 @@ create_individual_trend_enhanced <- function(milestone_data, selected_resident) 
     ) %>%
     arrange(Period_Order)
   
-  if (nrow(resident_trend) == 0) {
-    return(plot_ly() %>% 
-             add_annotations(text = "No trend data available for this resident", 
-                             x = 0.5, y = 0.5, showarrow = FALSE))
-  }
-  
-  # Calculate program means for same periods/levels
+  # Calculate program means for ALL possible periods (not just resident's periods)
   program_trend <- milestone_data$evaluations %>%
     mutate(
       PGY_Year = as.numeric(str_extract(PGY_Level, "\\d+")),
@@ -416,89 +519,179 @@ create_individual_trend_enhanced <- function(milestone_data, selected_resident) 
       Period_Label = paste0(Period_Type, " PGY-", PGY_Year)
     ) %>%
     filter(Period_Order < 999) %>%
-    group_by(Period_Order, Period_Label, PGY_Level, Period, Period_Type) %>%
+    group_by(Period_Order, Period_Label, PGY_Level, Period_Type, PGY_Year) %>%
     summarise(
       program_mean = mean(Rating, na.rm = TRUE),
       program_n = n(),
+      unique_residents = n_distinct(Resident_Name),
       .groups = "drop"
     ) %>%
+    filter(unique_residents >= 3) %>%  # Need multiple residents for meaningful comparison
     arrange(Period_Order)
   
-  # Merge individual and program trends
-  combined_trend <- resident_trend %>%
-    left_join(program_trend, by = c("Period_Order", "Period_Label", "PGY_Level", "Period", "Period_Type")) %>%
-    filter(!is.na(program_mean))
+  # Merge with complete timeline to ensure all periods are represented
+  complete_data <- complete_timeline %>%
+    left_join(resident_trend %>% select(Period_Order, individual_score, individual_n), 
+              by = "Period_Order") %>%
+    left_join(program_trend %>% select(Period_Order, program_mean, program_n, unique_residents), 
+              by = "Period_Order")
   
-  if (nrow(combined_trend) == 0) {
+  # Check if we have any data at all
+  if (all(is.na(complete_data$individual_score))) {
     return(plot_ly() %>% 
-             add_annotations(text = "Insufficient program data for comparison", 
+             add_annotations(text = "No trend data available for this resident", 
                              x = 0.5, y = 0.5, showarrow = FALSE))
   }
+  
+  # Check if we have only one data point
+  individual_data_points <- sum(!is.na(complete_data$individual_score))
+  if (individual_data_points == 1) {
+    single_point <- complete_data[!is.na(complete_data$individual_score), ][1, ]
+    return(plot_ly() %>% 
+             add_annotations(
+               text = paste("Only one evaluation period available for", selected_resident, 
+                            "<br>Trend analysis requires multiple time points<br><br>",
+                            "Current score:", round(single_point$individual_score, 2),
+                            "for", single_point$Period_Label),
+               x = 0.5, y = 0.5, showarrow = FALSE,
+               font = list(size = 14)
+             ))
+  }
+  
+  # Determine if we have program comparison data
+  has_program_comparison <- any(!is.na(complete_data$program_mean))
   
   # Create trend plot
   fig <- plot_ly()
   
-  # Individual trend line
-  fig <- fig %>% add_trace(
-    data = combined_trend,
-    x = ~Period_Order,
-    y = ~individual_score,
-    type = 'scatter',
-    mode = 'lines+markers',
-    name = selected_resident,
-    line = list(color = '#2E86AB', width = 4),
-    marker = list(color = '#2E86AB', size = 10, symbol = 'circle'),
-    hovertemplate = paste0(
-      '<b>', selected_resident, '</b><br>',
-      'Period: ', combined_trend$Period_Label, '<br>',
-      'Individual Score: %{y}<br>',
-      'Program Mean: ', round(combined_trend$program_mean, 2), '<br>',
-      'Difference: ', ifelse(combined_trend$individual_score >= combined_trend$program_mean, '+', ''),
-      round(combined_trend$individual_score - combined_trend$program_mean, 2),
-      '<extra></extra>'
-    )
-  )
+  # Add program mean line FIRST (as background reference) if available
+  if (has_program_comparison) {
+    program_data_available <- complete_data[!is.na(complete_data$program_mean), ]
+    
+    if (nrow(program_data_available) > 0) {
+      fig <- fig %>% add_trace(
+        data = program_data_available,
+        x = ~Period_Order,
+        y = ~program_mean,
+        type = 'scatter',
+        mode = 'lines+markers',
+        name = 'Program Mean',
+        line = list(color = '#E0E0E0', width = 2, dash = 'dash'),  # Lighter color for background
+        marker = list(color = '#E0E0E0', size = 6, symbol = 'diamond'),
+        opacity = 0.7,
+        hovertemplate = paste0(
+          '<b>Program Mean</b><br>',
+          'Period: ', program_data_available$Period_Label, '<br>',
+          'Program Mean: %{y:.2f}<br>',
+          'Based on ', program_data_available$unique_residents, ' residents',
+          '<extra></extra>'
+        )
+      )
+    }
+  }
   
-  # Program mean trend line
-  fig <- fig %>% add_trace(
-    data = combined_trend,
-    x = ~Period_Order,
-    y = ~program_mean,
-    type = 'scatter',
-    mode = 'lines+markers',
-    name = 'Program Mean',
-    line = list(color = '#FF6B35', width = 3, dash = 'dash'),
-    marker = list(color = '#FF6B35', size = 8, symbol = 'diamond'),
-    hovertemplate = paste0(
-      '<b>Program Mean</b><br>',
-      'Period: ', combined_trend$Period_Label, '<br>',
-      'Program Mean: %{y}<br>',
-      selected_resident, ': ', round(combined_trend$individual_score, 2), '<br>',
-      'Difference: ', ifelse(combined_trend$individual_score >= combined_trend$program_mean, '+', ''),
-      round(combined_trend$individual_score - combined_trend$program_mean, 2),
-      '<extra></extra>'
+  # Add individual trend line (always show, but only for periods with data)
+  individual_data_available <- complete_data[!is.na(complete_data$individual_score), ]
+  
+  if (nrow(individual_data_available) > 0) {
+    # Create hover template
+    individual_hover <- if (has_program_comparison) {
+      # Join to get program mean for hover
+      hover_data <- individual_data_available %>%
+        left_join(complete_data %>% select(Period_Order, program_mean), by = "Period_Order")
+      
+      paste0(
+        '<b>', selected_resident, '</b><br>',
+        'Period: ', individual_data_available$Period_Label, '<br>',
+        'Individual Score: %{y:.2f}<br>',
+        ifelse(!is.na(hover_data$program_mean), 
+               paste0('Program Mean: ', round(hover_data$program_mean, 2), '<br>',
+                      'Difference: ', ifelse(individual_data_available$individual_score >= hover_data$program_mean, '+', ''),
+                      round(individual_data_available$individual_score - hover_data$program_mean, 2)), 
+               'No program comparison available'),
+        '<extra></extra>'
+      )
+    } else {
+      paste0(
+        '<b>', selected_resident, '</b><br>',
+        'Period: ', individual_data_available$Period_Label, '<br>',
+        'Score: %{y:.2f}<br>',
+        'Evaluations: ', individual_data_available$individual_n,
+        '<extra></extra>'
+      )
+    }
+    
+    fig <- fig %>% add_trace(
+      data = individual_data_available,
+      x = ~Period_Order,
+      y = ~individual_score,
+      type = 'scatter',
+      mode = 'lines+markers',
+      name = selected_resident,
+      line = list(color = '#2E86AB', width = 4),
+      marker = list(color = '#2E86AB', size = 12, symbol = 'circle'),
+      hovertemplate = individual_hover
     )
-  )
+  }
+  
+  # Add markers for periods without data (ghost points)
+  periods_without_data <- complete_data[is.na(complete_data$individual_score), ]
+  
+  if (nrow(periods_without_data) > 0) {
+    fig <- fig %>% add_trace(
+      data = periods_without_data,
+      x = ~Period_Order,
+      y = rep(NA, nrow(periods_without_data)),
+      type = 'scatter',
+      mode = 'markers',
+      name = 'No Data Available',
+      marker = list(color = 'lightgray', size = 8, symbol = 'circle-open'),
+      showlegend = FALSE,
+      hovertemplate = paste0(
+        '<b>No Data</b><br>',
+        'Period: ', periods_without_data$Period_Label, '<br>',
+        'No evaluations for ', selected_resident,
+        '<extra></extra>'
+      )
+    )
+  }
   
   # Layout configuration
+  title_text <- if (has_program_comparison) {
+    paste("Training Progression:", selected_resident, "vs Program")
+  } else {
+    paste("Individual Training Progression:", selected_resident, "<br>",
+          "<span style='font-size: 12px; color: #666;'>Insufficient program data for comparison</span>")
+  }
+  
+  # Calculate y-axis range to accommodate all data
+  all_scores <- c(complete_data$individual_score, complete_data$program_mean)
+  all_scores <- all_scores[!is.na(all_scores)]
+  
+  y_range <- if (length(all_scores) > 0) {
+    c(max(1, min(all_scores) - 0.5), min(9, max(all_scores) + 0.5))
+  } else {
+    c(1, 9)
+  }
+  
   fig <- fig %>% layout(
     title = list(
-      text = paste("Progression Over Time:", selected_resident, "vs Program"),
+      text = title_text,
       font = list(size = 14),
       y = 0.95
     ),
     xaxis = list(
       title = "Training Period",
       tickmode = 'array',
-      tickvals = combined_trend$Period_Order,
-      ticktext = combined_trend$Period_Label,
+      tickvals = complete_timeline$Period_Order,
+      ticktext = complete_timeline$Period_Label,
       tickangle = -45,
-      tickfont = list(size = 10)
+      tickfont = list(size = 10),
+      range = c(min(complete_timeline$Period_Order) - 0.5, max(complete_timeline$Period_Order) + 0.5)
     ),
     yaxis = list(
       title = "Average Score",
-      range = c(max(1, min(c(combined_trend$individual_score, combined_trend$program_mean), na.rm = TRUE) - 0.5),
-                min(9, max(c(combined_trend$individual_score, combined_trend$program_mean), na.rm = TRUE) + 0.5)),
+      range = y_range,
       tickmode = 'linear',
       tick0 = 1,
       dtick = 1,
@@ -508,11 +701,22 @@ create_individual_trend_enhanced <- function(milestone_data, selected_resident) 
       orientation = "h",
       x = 0.5,
       xanchor = "center",
-      y = -0.2,
+      y = -0.25,
       font = list(size = 11)
     ),
     hovermode = 'x unified',
-    margin = list(t = 60, b = 80, l = 60, r = 40)
+    margin = list(t = 80, b = 100, l = 60, r = 40),
+    annotations = if (!has_program_comparison) {
+      list(
+        list(
+          text = "For program comparisons, visit the Program Overview tab",
+          showarrow = FALSE,
+          x = 0.5, y = -0.3,
+          xref = "paper", yref = "paper",
+          font = list(size = 11, color = "#666")
+        )
+      )
+    } else NULL
   )
   
   return(fig)

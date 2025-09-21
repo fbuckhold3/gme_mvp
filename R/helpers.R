@@ -3,13 +3,13 @@
 # Extracts all structure and definitions from the CSV data itself
 # =============================================================================
 
-#' Load and Process ACGME Milestone CSV Data
+#' Load and Process ACGME Milestone CSV Data - Generalized Version
 #'
-#' Processes ACGME milestone CSV files and extracts all milestone definitions,
-#' program info, and structure directly from the data. Works with any specialty.
+#' Enhanced version that handles various Question Key patterns with full case-insensitivity.
+#' Drop-in replacement for the original load_milestone_csv_data function.
 #'
 #' @param file_paths Vector of file paths to CSV files
-#' @return List containing all processed data and metadata
+#' @return List containing all processed data and metadata (same structure as original)
 #' @export
 load_milestone_csv_data <- function(file_paths) {
   
@@ -19,121 +19,97 @@ load_milestone_csv_data <- function(file_paths) {
   
   cat("Loading", length(file_paths), "CSV files...\n")
   
-  # Read and combine all CSV files
-  # In your load_milestone_csv_data function, replace the file reading section:
+  # ========================================================================
+  # READ AND COMBINE CSV FILES
+  # ========================================================================
+  
   data_list <- lapply(file_paths, function(x) {
     tryCatch({
       cat("Reading:", basename(x), "\n")
       
-      # Use data.table::fread for faster reading
+      # Use data.table::fread for faster reading if available
       if (requireNamespace("data.table", quietly = TRUE)) {
         df <- data.table::fread(x, data.table = FALSE)
       } else {
         df <- read.csv(x, stringsAsFactors = FALSE)
       }
       
-      # Clean column names (your existing code)
+      # Clean column names
       names(df) <- gsub("\\s+", ".", names(df))
       names(df) <- gsub("\\.+", ".", names(df))
       names(df) <- gsub("\\.$", "", names(df))
       
       cat("  Rows:", nrow(df), "Columns:", ncol(df), "\n")
-      return(df)
       
+      return(df)
     }, error = function(e) {
-      cat("ERROR reading", basename(x), ":", e$message, "\n")
+      cat("Error reading file", x, ":", e$message, "\n")
       return(NULL)
     })
   })
   
-  # Remove NULL entries
+  # Remove any NULL entries from failed reads
   data_list <- data_list[!sapply(data_list, is.null)]
   
-  # Combine data frames properly
   if (length(data_list) == 0) {
-    stop("No valid CSV files could be read")
+    stop("No valid data found in the uploaded files")
   }
   
+  # Combine all dataframes
   combined_data <- do.call(rbind, data_list)
   
-  # Ensure we have a proper data frame
-  if (!is.data.frame(combined_data)) {
-    combined_data <- as.data.frame(combined_data, stringsAsFactors = FALSE)
-  }
-  
-  # Validate combined data
-  if (nrow(combined_data) == 0) {
-    stop("No valid data found in uploaded files")
-  }
-  
   cat("Combined data:", nrow(combined_data), "total rows\n")
-  cat("Column names:", paste(names(combined_data)[1:5], collapse = ", "), "...\n")
+  cat("Column names:", paste(head(names(combined_data), 5), collapse = ", "), "...\n")
   
   # ========================================================================
-  # EXTRACT PROGRAM/SPECIALTY INFORMATION (for headers and comparisons)
+  # EXTRACT PROGRAM INFORMATION
   # ========================================================================
   
-  program_info <- combined_data %>%
-    select(Program.Name, Specialty.Name, Academic.Year) %>%
-    distinct() %>%
-    filter(!is.na(Program.Name), !is.na(Specialty.Name))
+  program_info <- list(
+    program_name = if("Program.Name" %in% names(combined_data)) unique(combined_data$Program.Name)[1] else "Unknown Program",
+    specialty_name = if("Specialty.Name" %in% names(combined_data)) unique(combined_data$Specialty.Name)[1] else "Unknown Specialty", 
+    academic_year = if("Academic.Year" %in% names(combined_data)) unique(combined_data$Academic.Year)[1] else "Unknown Year",
+    survey_name = if("Survey.Name" %in% names(combined_data)) unique(combined_data$Survey.Name)[1] else "Unknown Survey"
+  )
   
-  # Get primary program info (most common if multiple)
-  primary_program <- program_info %>%
-    count(Program.Name, Specialty.Name, Academic.Year) %>%
-    slice_max(n, n = 1) %>%
-    select(-n) %>%
-    slice(1)  # Take only the first row if there are ties
-  
-  # Clean up the program info - take first values only
-  program_name <- strsplit(as.character(primary_program$Program.Name), " ")[[1]][1:4] %>% 
-    paste(collapse = " ")
-  specialty_name <- strsplit(as.character(primary_program$Specialty.Name), " ")[[1]][1] %>% 
-    paste(collapse = " ")
-  academic_year <- strsplit(as.character(primary_program$Academic.Year), " ")[[1]][1]
-  
-  cat("Program Info:\n")
-  cat("  Program:", program_name, "\n")
-  cat("  Specialty:", specialty_name, "\n")
-  cat("  Academic Year:", academic_year, "\n")
+  cat("\nProgram Info:\n")
+  cat("  Program:", program_info$program_name, "\n")
+  cat("  Specialty:", program_info$specialty_name, "\n") 
+  cat("  Academic Year:", program_info$academic_year, "\n")
   
   # ========================================================================
-  # EXTRACT MILESTONE DEFINITIONS (data-driven from Question.Text)
+  # CREATE MILESTONE DEFINITIONS (FULLY CASE-INSENSITIVE)
   # ========================================================================
   
   milestone_definitions <- combined_data %>%
-    select(Question.Key, Report.Category, Question.Text) %>%
-    filter(
-      !is.na(Question.Key), 
-      !is.na(Report.Category), 
-      !is.na(Question.Text),
-      !grepl("_followup", Question.Key, ignore.case = TRUE)  # Remove followup questions
-    ) %>%
+    filter(!is.na(Question.Key), !is.na(Question.Text)) %>%
+    select(Question.Key, Question.Text, Report.Category) %>%
     distinct() %>%
-    # Transform Question.Key: "Comp1_PC_Q2" -> "PC2"
     mutate(
+      # Extract sub-competency from Question Key - FULLY CASE-INSENSITIVE
+      # Handles: comp/Comp/COMP, pc/PC/Pc, mk/MK/Mk, etc.
       Sub_Competency = case_when(
-        str_detect(Question.Key, "Comp[0-9]+_PC_Q[0-9]+") ~ 
-          paste0("PC", str_extract(Question.Key, "(?<=_PC_Q)[0-9]+")),
-        str_detect(Question.Key, "Comp[0-9]+_MK_Q[0-9]+") ~ 
-          paste0("MK", str_extract(Question.Key, "(?<=_MK_Q)[0-9]+")),
-        str_detect(Question.Key, "Comp[0-9]+_ICS_Q[0-9]+") ~ 
-          paste0("ICS", str_extract(Question.Key, "(?<=_ICS_Q)[0-9]+")),
-        str_detect(Question.Key, "Comp[0-9]+_SBP_Q[0-9]+") ~ 
-          paste0("SBP", str_extract(Question.Key, "(?<=_SBP_Q)[0-9]+")),
-        str_detect(Question.Key, "Comp[0-9]+_PROF_Q[0-9]+") ~ 
-          paste0("PROF", str_extract(Question.Key, "(?<=_PROF_Q)[0-9]+")),
-        str_detect(Question.Key, "Comp[0-9]+_PBL_Q[0-9]+") ~ 
-          paste0("PBL", str_extract(Question.Key, "(?<=_PBL_Q)[0-9]+")),
-        str_detect(Question.Key, "Comp[0-9]+_PBLI_Q[0-9]+") ~ 
-          paste0("PBLI", str_extract(Question.Key, "(?<=_PBLI_Q)[0-9]+")),
-        TRUE ~ NA_character_  # Mark as NA if pattern doesn't match
+        str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Pp][Cc]_[Qq][0-9]+")) ~ 
+          paste0("PC", str_extract(Question.Key, "(?i)(?<=_[Pp][Cc]_[Qq])[0-9]+")),
+        str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Mm][Kk]_[Qq][0-9]+")) ~ 
+          paste0("MK", str_extract(Question.Key, "(?i)(?<=_[Mm][Kk]_[Qq])[0-9]+")),
+        str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Ii][Cc][Ss]_[Qq][0-9]+")) ~ 
+          paste0("ICS", str_extract(Question.Key, "(?i)(?<=_[Ii][Cc][Ss]_[Qq])[0-9]+")),
+        str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Ss][Bb][Pp]_[Qq][0-9]+")) ~ 
+          paste0("SBP", str_extract(Question.Key, "(?i)(?<=_[Ss][Bb][Pp]_[Qq])[0-9]+")),
+        str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Pp][Rr][Oo][Ff]_[Qq][0-9]+")) ~ 
+          paste0("PROF", str_extract(Question.Key, "(?i)(?<=_[Pp][Rr][Oo][Ff]_[Qq])[0-9]+")),
+        str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Pp][Bb][Ll][Ii]?_[Qq][0-9]+")) ~ 
+          paste0("PBLI", str_extract(Question.Key, "(?i)(?<=_[Pp][Bb][Ll][Ii]?_[Qq])[0-9]+")),
+        # Handle PBL without I
+        str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Pp][Bb][Ll]_[Qq][0-9]+")) ~ 
+          paste0("PBL", str_extract(Question.Key, "(?i)(?<=_[Pp][Bb][Ll]_[Qq])[0-9]+")),
+        TRUE ~ NA_character_
       )
     ) %>%
-    # Rename columns as requested
-    select(
+    filter(!is.na(Sub_Competency)) %>%
+    rename(
       Competency = Report.Category,
-      Sub_Competency = Sub_Competency,
       Milestone_Description = Question.Text,
       Original_Question_Key = Question.Key
     ) %>%
@@ -141,7 +117,7 @@ load_milestone_csv_data <- function(file_paths) {
   
   cat("Found", nrow(milestone_definitions), "unique milestone definitions\n")
   
-  # Debug: Show sample milestone definitions
+  # Show sample milestone definitions
   cat("Sample milestone definitions:\n")
   print(head(milestone_definitions$Sub_Competency, 10))
   
@@ -155,7 +131,7 @@ load_milestone_csv_data <- function(file_paths) {
   cat("Competency categories:", paste(competency_categories, collapse = ", "), "\n")
   
   # ========================================================================
-  # PROCESS MILESTONE EVALUATION DATA
+  # PROCESS MILESTONE EVALUATION DATA (FULLY CASE-INSENSITIVE)
   # ========================================================================
   
   cat("Starting evaluation data processing...\n")
@@ -167,7 +143,7 @@ load_milestone_csv_data <- function(file_paths) {
         !is.na(Int.Response.Value),
         Int.Response.Value >= 1,
         Int.Response.Value <= 9,
-        !grepl("_followup", Question.Key, ignore.case = TRUE),  # Remove followup questions
+        !grepl("_followup", Question.Key, ignore.case = TRUE),
         !is.na(Question.Key),
         !is.na(First.Name),
         !is.na(Last.Name)
@@ -177,37 +153,39 @@ load_milestone_csv_data <- function(file_paths) {
         Resident_Name = paste(First.Name, Last.Name),
         
         # Extract period from Schedule Window Description
-        # "2024-2025 ACGME Mid-Year Milestone Evaluations" -> "2024-2025 Mid-Year"
         Period = case_when(
-          grepl("Mid-Year", Schedule.Window.Description) ~ str_replace(Schedule.Window.Description, "^([0-9]{4}-[0-9]{4}).*Mid-Year.*", "\\1 Mid-Year"),
-          grepl("Year-End", Schedule.Window.Description) ~ str_replace(Schedule.Window.Description, "^([0-9]{4}-[0-9]{4}).*Year-End.*", "\\1 Year-End"),
+          grepl("Mid-Year", Schedule.Window.Description, ignore.case = TRUE) ~ 
+            str_replace(Schedule.Window.Description, "^([0-9]{4}-[0-9]{4}).*[Mm]id-?[Yy]ear.*", "\\1 Mid-Year"),
+          grepl("Year-End", Schedule.Window.Description, ignore.case = TRUE) ~ 
+            str_replace(Schedule.Window.Description, "^([0-9]{4}-[0-9]{4}).*[Yy]ear-?[Ee]nd.*", "\\1 Year-End"),
           TRUE ~ Schedule.Window.Description
         ),
         
-        # Keep PGY level as is (flexible for PGY-1 through PGY-5+)
+        # Keep PGY level flexible
         PGY_Level = case_when(
           grepl("PGY", Resident.Year, ignore.case = TRUE) ~ as.character(Resident.Year),
           is.numeric(as.numeric(Resident.Year)) ~ paste0("PGY-", Resident.Year),
           TRUE ~ as.character(Resident.Year)
         ),
         
-        # Transform Question.Key: "Comp1_PC_Q2" -> "PC2"
+        # Transform Question.Key - FULLY CASE-INSENSITIVE
         Sub_Competency = case_when(
-          str_detect(Question.Key, "Comp[0-9]+_PC_Q[0-9]+") ~ 
-            paste0("PC", str_extract(Question.Key, "(?<=_PC_Q)[0-9]+")),
-          str_detect(Question.Key, "Comp[0-9]+_MK_Q[0-9]+") ~ 
-            paste0("MK", str_extract(Question.Key, "(?<=_MK_Q)[0-9]+")),
-          str_detect(Question.Key, "Comp[0-9]+_ICS_Q[0-9]+") ~ 
-            paste0("ICS", str_extract(Question.Key, "(?<=_ICS_Q)[0-9]+")),
-          str_detect(Question.Key, "Comp[0-9]+_SBP_Q[0-9]+") ~ 
-            paste0("SBP", str_extract(Question.Key, "(?<=_SBP_Q)[0-9]+")),
-          str_detect(Question.Key, "Comp[0-9]+_PROF_Q[0-9]+") ~ 
-            paste0("PROF", str_extract(Question.Key, "(?<=_PROF_Q)[0-9]+")),
-          str_detect(Question.Key, "Comp[0-9]+_PBL_Q[0-9]+") ~ 
-            paste0("PBL", str_extract(Question.Key, "(?<=_PBL_Q)[0-9]+")),
-          str_detect(Question.Key, "Comp[0-9]+_PBLI_Q[0-9]+") ~ 
-            paste0("PBLI", str_extract(Question.Key, "(?<=_PBLI_Q)[0-9]+")),
-          TRUE ~ NA_character_  # Mark as NA if pattern doesn't match
+          str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Pp][Cc]_[Qq][0-9]+")) ~ 
+            paste0("PC", str_extract(Question.Key, "(?i)(?<=_[Pp][Cc]_[Qq])[0-9]+")),
+          str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Mm][Kk]_[Qq][0-9]+")) ~ 
+            paste0("MK", str_extract(Question.Key, "(?i)(?<=_[Mm][Kk]_[Qq])[0-9]+")),
+          str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Ii][Cc][Ss]_[Qq][0-9]+")) ~ 
+            paste0("ICS", str_extract(Question.Key, "(?i)(?<=_[Ii][Cc][Ss]_[Qq])[0-9]+")),
+          str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Ss][Bb][Pp]_[Qq][0-9]+")) ~ 
+            paste0("SBP", str_extract(Question.Key, "(?i)(?<=_[Ss][Bb][Pp]_[Qq])[0-9]+")),
+          str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Pp][Rr][Oo][Ff]_[Qq][0-9]+")) ~ 
+            paste0("PROF", str_extract(Question.Key, "(?i)(?<=_[Pp][Rr][Oo][Ff]_[Qq])[0-9]+")),
+          str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Pp][Bb][Ll][Ii]?_[Qq][0-9]+")) ~ 
+            paste0("PBLI", str_extract(Question.Key, "(?i)(?<=_[Pp][Bb][Ll][Ii]?_[Qq])[0-9]+")),
+          # Handle PBL without I  
+          str_detect(Question.Key, regex("[Cc][Oo][Mm][Pp][0-9]+_[Pp][Bb][Ll]_[Qq][0-9]+")) ~ 
+            paste0("PBL", str_extract(Question.Key, "(?i)(?<=_[Pp][Bb][Ll]_[Qq])[0-9]+")),
+          TRUE ~ NA_character_
         ),
         
         # Rename score column
@@ -216,28 +194,11 @@ load_milestone_csv_data <- function(file_paths) {
         # Add competency category
         Competency = Report.Category
       ) %>%
-      # Debug: Check transformations
-      mutate(
-        debug_before = Question.Key,
-        debug_after = Sub_Competency
-      ) %>%
       # Keep only successfully transformed sub-competencies
       filter(!is.na(Sub_Competency)) %>%
-      select(Resident_Name, PGY_Level, Period, Competency, Sub_Competency, Rating, debug_before, debug_after)
+      select(Resident_Name, PGY_Level, Period, Competency, Sub_Competency, Rating, Question.Key)
     
     cat("Created evaluation_data with", nrow(evaluation_data), "rows\n")
-    
-    # Debug output
-    cat("Sample transformations:\n")
-    sample_transforms <- evaluation_data %>%
-      select(debug_before, debug_after) %>%
-      distinct() %>%
-      head(10)
-    print(sample_transforms)
-    
-    # Remove debug columns for final data
-    evaluation_data <- evaluation_data %>%
-      select(-debug_before, -debug_after)
     
   }, error = function(e) {
     cat("Error in evaluation data processing:", e$message, "\n")
@@ -246,111 +207,52 @@ load_milestone_csv_data <- function(file_paths) {
   
   cat("Processed", nrow(evaluation_data), "milestone evaluations\n")
   
-  # Debug: Check if evaluation_data was created properly
+  # Check if evaluation_data was created properly
   if (nrow(evaluation_data) == 0) {
     stop("No evaluation data was processed. Check Question.Key patterns.")
   }
   
   # ========================================================================
-  # CREATE RESIDENTS DATA (unique names for dropdown)
-  # ========================================================================
-  
-  residents <- evaluation_data %>%
-    select(Resident_Name) %>%
-    distinct() %>%
-    arrange(Resident_Name)
-  
-  cat("Found", nrow(residents), "unique residents\n")
-  
-  # ========================================================================
   # CREATE SUMMARY STATISTICS
   # ========================================================================
   
-  # Assessment periods (unique periods from evaluation data)
-  periods <- unique(evaluation_data$Period) %>% sort()
-  
-  # Training levels (unique PGY levels)
-  training_levels <- unique(evaluation_data$PGY_Level) %>% sort()
-  
-  # Sub-competencies per category
-  milestones_per_category <- milestone_definitions %>%
-    count(Competency, name = "n_milestones") %>%
-    arrange(desc(n_milestones))
-  
-  # Unique evaluation combinations (Resident x Period x PGY)
+  # Get unique evaluations (combinations of resident, period, competency)
   unique_evaluations <- evaluation_data %>%
-    select(Resident_Name, PGY_Level, Period) %>%
+    select(Resident_Name, Period, PGY_Level) %>%
     distinct()
   
-  # Data completeness estimate
-  total_possible <- nrow(residents) * nrow(milestone_definitions) * length(periods)
-  total_actual <- nrow(evaluation_data)
-  completeness <- round(total_actual / total_possible * 100, 1)
-  
-  # ========================================================================
-  # COMPILE RESULTS
-  # ========================================================================
-  
-  results <- list(
-    # Program/Specialty Info
-    program_info = list(
-      program_name = program_name,
-      specialty_name = specialty_name,
-      academic_year = academic_year,
-      all_programs = program_info  # For future comparisons
-    ),
-    
-    # Milestone Structure (extracted from data)
-    milestone_structure = list(
-      definitions = milestone_definitions,
-      competency_categories = competency_categories,
-      milestones_per_category = milestones_per_category,
-      total_milestones = nrow(milestone_definitions)
-    ),
-    
-    # Resident Information
-    residents = residents,
-    
-    # Evaluation Data
-    evaluations = evaluation_data,
-    
-    # Summary Statistics
-    summary = list(
-      n_residents = nrow(residents),
-      n_evaluations = nrow(evaluation_data),
-      n_milestones = nrow(milestone_definitions),
-      n_periods = length(periods),
-      n_training_levels = length(training_levels),
-      periods = periods,
-      training_levels = training_levels,
-      data_completeness = completeness
-    ),
-    
-    # Metadata
-    metadata = list(
-      files_processed = basename(file_paths),
-      processing_date = Sys.time(),
-      total_csv_rows = nrow(combined_data)
-    )
+  summary_stats <- list(
+    total_residents = length(unique(evaluation_data$Resident_Name)),
+    total_evaluations = nrow(evaluation_data),
+    periods = unique(evaluation_data$Period),
+    training_levels = unique(evaluation_data$PGY_Level),
+    competencies = unique(evaluation_data$Competency),
+    data_completeness = round((nrow(evaluation_data) / nrow(combined_data)) * 100, 1)
   )
   
-  # Print summary
-  cat("\n=== DATA LOADING SUMMARY ===\n")
-  cat("Program:", results$program_info$program_name, "\n")
-  cat("Specialty:", results$program_info$specialty_name, "\n")
-  cat("Residents:", results$summary$n_residents, "\n")
-  cat("Milestone evaluations:", results$summary$n_evaluations, "\n")
-  cat("Unique sub-competencies:", results$summary$n_milestones, "\n")
-  cat("Competency categories:", length(results$milestone_structure$competency_categories), 
-      "(", paste(results$milestone_structure$competency_categories, collapse = ", "), ")\n")
-  cat("Assessment periods:", length(results$summary$periods), 
-      "(", paste(results$summary$periods, collapse = ", "), ")\n")
-  cat("Training levels:", paste(results$summary$training_levels, collapse = ", "), "\n")
+  cat("\n=== PROCESSING SUMMARY ===\n")
+  cat("Total residents:", summary_stats$total_residents, "\n")
+  cat("Total evaluations:", summary_stats$total_evaluations, "\n")
+  cat("Periods (", length(summary_stats$periods), "):", 
+      paste(summary_stats$periods, collapse = ", "), "\n")
+  cat("Training levels:", paste(summary_stats$training_levels, collapse = ", "), "\n")
   cat("Unique evaluation sessions:", nrow(unique_evaluations), "\n")
-  cat("Data completeness:", results$summary$data_completeness, "%\n")
+  cat("Data completeness:", summary_stats$data_completeness, "%\n")
   cat("============================\n")
   
-  return(results)
+  # ========================================================================
+  # RETURN STRUCTURED RESULTS (MATCHING EXPECTED APP STRUCTURE)
+  # ========================================================================
+  
+  return(list(
+    raw_data = combined_data,
+    evaluations = evaluation_data,
+    evaluation_data = evaluation_data,
+    milestone_definitions = milestone_definitions,
+    milestone_structure = list(definitions = milestone_definitions),  # ADD THIS LINE
+    program_info = program_info,
+    summary = summary_stats
+  ))
 }
 
 #' Create Dynamic App Header
