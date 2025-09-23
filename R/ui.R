@@ -1,514 +1,484 @@
 # =============================================================================
-# R/ui.R - User Interface (FIXED VERSION)
+# R/ui.R - Clean User Interface
 # =============================================================================
 
-# Safe theme creation
-create_theme <- function() {
-  tryCatch({
-    return(bslib::bs_theme(version = 5, primary = "#2C3E50"))
-  }, error = function(e) {
-    warning("bslib theme failed, using default: ", e$message)
-    return(NULL)
-  })
-}
-
 ui <- fluidPage(
-  theme = create_theme(),  # Will be NULL if bslib fails
-  
-  # Custom CSS backup
+  # Link to external CSS
   tags$head(
-    tags$style(HTML("
-.btn-primary { background-color: #2C3E50 !important; border-color: #2C3E50 !important; }
-.nav-tabs > li.active > a { background-color: #2C3E50 !important; color: white !important; }
-
-/* JavaScript-controlled sticky sidebar */
-.js-sticky-sidebar {
-  transition: all 0.3s ease;
-}
-
-.js-sticky-sidebar.stuck {
-  position: fixed;
-  top: 20px;
-  width: 300px;
-  z-index: 100;
-}
-
-/* Milestone reference table styling */
-#milestone_reference_table {
-  border-collapse: separate !important;
-  border-spacing: 1px !important;
-  table-layout: fixed !important;
-  width: 100% !important;
-}
-
-#milestone_reference_table td {
-  border: none !important;
-  padding: 0px !important;
-  vertical-align: middle !important;
-}
-
-#milestone_reference_table tbody tr:hover {
-  background-color: transparent !important;
-}
-
-#milestone_reference_table th:first-child,
-#milestone_reference_table td:first-child {
-  width: 60px !important;
-  max-width: 60px !important;
-  min-width: 60px !important;
-  overflow: hidden !important;
-}
-
-#milestone_reference_table th:nth-child(2),
-#milestone_reference_table td:nth-child(2) {
-  width: calc(100% - 60px) !important;
-}
-
-")),
-    tags$script(HTML("
-  $(document).ready(function() {
-    function handleSticky() {
-      $('.js-sticky-sidebar').each(function() {
-        var sidebar = $(this);
-        var container = sidebar.closest('.tab-pane.active');
-        
-        if (container.length === 0) return;
-        
-        var shouldStick = $(window).scrollTop() > 100;
-        var mainContent = null;
-        
-        // Find the correct main content based on which tab is active
-        if (container.find('#milestone-main-content').length > 0) {
-          mainContent = $('#milestone-main-content');
-        } else if (container.find('#program-main-content').length > 0) {
-          mainContent = $('#program-main-content');
-        }
-        
-        if (mainContent) {
-          if (shouldStick && !sidebar.hasClass('stuck')) {
-            sidebar.addClass('stuck');
-            mainContent.css('margin-left', '320px');
-          } else if (!shouldStick && sidebar.hasClass('stuck')) {
-            sidebar.removeClass('stuck');
-            mainContent.css('margin-left', '0');
-          }
-        }
-      });
-    }
-    
-    $(window).on('scroll', handleSticky);
-    $(document).on('shown.bs.tab', handleSticky);
-    setTimeout(handleSticky, 100);
-  });
-")),
-    
-    tags$title("GME Milestone Visualization Platform")
+    tags$link(rel = "stylesheet", type = "text/css", href = "styles.css"),
+    tags$title("GME Milestone Platform")
   ),
-  title = "GME Milestone Visualization Platform",
   
-  # Header
-  div(class = "gmed-header",
-      style = "background: linear-gradient(90deg, #2C3E50 0%, #3498DB 100%); color: white; padding: 20px; margin-bottom: 20px;",
-      h1("GME Milestone Visualization Platform", style = "margin: 0; font-weight: 300; font-size: 2.5rem;"),
-      uiOutput("program_subtitle")
-  ),
-
-  # Main content
-  navset_card_tab(
-    id = "main_tabs",
-    
-    # Data Upload Tab
-    nav_panel("Data Upload",
-              icon = icon("upload"),
-              
-              fluidRow(
-                column(6,
-                       div(class = "card",
-                           div(class = "card-header",
-                               h4(icon("file-csv"), "Upload ACGME Milestone Data")
-                           ),
-                           div(class = "card-body",
-                               fileInput("csv_files", 
-                                         "Choose CSV File(s)",
-                                         multiple = TRUE,
-                                         accept = c(".csv")),
-                               
-                               actionButton("process_csv", "Process Data", 
-                                            class = "btn-primary btn-lg"),
-                               
-                               br(), br(),
-                               
-                               verbatimTextOutput("status_text")
+  # Clean header
+  div(class = "main-container",
+      div(class = "gmed-header",
+          style = "background: linear-gradient(90deg, #2C3E50 0%, #3498DB 100%); 
+                   color: white; padding: 30px 0; margin-bottom: 30px; text-align: center;",
+          h1("GME Milestone Platform", style = "margin: 0; font-weight: 300; font-size: 2.2rem;"),
+          uiOutput("program_subtitle")
+      ),
+      
+      # Clean navigation
+      navset_card_tab(
+        id = "main_tabs",
+        
+        # ===================================================================
+        # DATA UPLOAD - SIMPLIFIED
+        # ===================================================================
+        nav_panel("Get Started",
+                  icon = icon("upload"),
+                  
+                  # Tab Description
+                  fluidRow(
+                    column(12,
+                           div(class = "alert alert-info mb-4",
+                               h6("Get Started", style = "margin-bottom: 10px; color: #2c3e50;"),
+                               p("Welcome to the GME Milestone Visualization Platform. This tool helps residency programs analyze ACGME Milestone 2.0 evaluation data to identify trends, track resident progression, and support educational outcomes. Upload your WebADS milestone CSV files or try our demo data to explore the platform's capabilities.",
+                                 style = "margin-bottom: 0; font-size: 0.95em;")
                            )
-                       )
-                ),
-                
-                column(6,
-                       div(class = "card",
-                           div(class = "card-header", h5("Summary")),
-                           div(class = "card-body",
-                               htmlOutput("quick_summary")
-                           )
-                       )
-                )
-              )
-    ),
-    
-    # Program Overview Tab
-    nav_panel("Program Overview",
-              icon = icon("chart-line"),
-              
-              conditionalPanel(
-                condition = "output.data_loaded",
-                
-                div(style = "display: flex; gap: 20px;",
-                    # Left sidebar - now using flexbox instead of Bootstrap columns
-                    div(style = "flex: 0 0 300px;", # Fixed width sidebar
-                        div(class = "card js-sticky-sidebar",
-                            div(class = "card-header", h5("Analysis Controls")),
-                            div(class = "card-body",
-                                 
-                                 # Assessment Period Selection - FIXED
-                                 h6("Assessment Period:", style = "font-weight: bold; margin-top: 10px;"),
-                                 radioButtons("period_selection", "",
-                                              choices = list(
-                                                "Specific Period" = "specific",
-                                                "Most Recent End-Year" = "recent_end",
-                                                "Most Recent Mid-Year" = "recent_mid", 
-                                                "All Periods Combined" = "all_periods"
-                                              ),
-                                              selected = "recent_end"),
-                                 
-                                 # Show specific period dropdown when "Specific Period" is selected
-                                 conditionalPanel(
-                                   condition = "input.period_selection == 'specific'",
-                                   selectInput("specific_period", "Choose Period:",
-                                               choices = NULL)
-                                 ),
-                                 
-                                 hr(),
-                                 
-                                 # PGY Level Selection
-                                 h6("PGY Levels to Include:", style = "font-weight: bold; margin-top: 10px;"),
-                                 checkboxInput("select_all_pgy", "Select All", value = TRUE),
-                                 uiOutput("pgy_checkboxes"),
-                                 
-                                 hr(),
-                                 
-                                 # Spider Plot Specific Controls - FIXED CONDITION
-                                 h6("Spider Plot Options:", style = "font-weight: bold; margin-top: 10px; color: #2c3e50;"),
-                                 
-                                 # Multiple Period Selection for Spider Plot
-                                 conditionalPanel(
-                                   condition = "input.period_selection == 'specific'",  # FIXED: was period_selection_type
-                                   div(
-                                     checkboxInput("spider_multi_period", "Compare Multiple Periods", value = FALSE),
-                                     conditionalPanel(
-                                       condition = "input.spider_multi_period",
-                                       div(style = "margin-left: 15px; padding: 10px; background-color: #f8f9fa; border-radius: 5px;",
-                                           h6("Select periods to compare:", style = "font-size: 0.9em; margin-bottom: 8px;"),
-                                           uiOutput("spider_period_checkboxes"),
-                                           checkboxInput("spider_include_total", "Include 'All Periods' line", value = TRUE)
-                                       )
+                    )
+                  ),
+                  
+                  # Quick start section
+                  fluidRow(
+                    column(8, offset = 2,
+                           div(class = "content-card card",
+                               div(class = "card-body text-center",
+                                   h3("Welcome to GME Milestone Platform"),
+                                   p("Analyze your ACGME Milestone evaluations with powerful visualizations and insights.", 
+                                     class = "lead"),
+                                   
+                                   hr(),
+                                   
+                                   # Two main options
+                                   fluidRow(
+                                     column(6,
+                                            div(class = "content-card card border-primary",
+                                                div(class = "card-header bg-primary text-white text-center",
+                                                    h5(icon("database"), "Upload Your Data", class = "mb-0")
+                                                ),
+                                                div(class = "card-body",
+                                                    p("Load your ACGME Milestone 2.0 data (in .csv files). To get the most from this, we recommend uploading multiple (both Mid-Year and Year-End) evaluations from a number of years.", 
+                                                      style = "font-size: 0.95em;"),
+                                                    
+                                                    fileInput("csv_files", 
+                                                              "Choose CSV File(s)",
+                                                              multiple = TRUE,
+                                                              accept = c(".csv")),
+                                                    
+                                                    actionButton("process_csv", "Process Data", 
+                                                                 class = "btn-primary btn-block"),
+                                                    
+                                                    br(),
+                                                    verbatimTextOutput("status_text", placeholder = TRUE)
+                                                )
+                                            )
+                                     ),
+                                     
+                                     column(6,
+                                            div(class = "content-card card border-success",
+                                                div(class = "card-header bg-success text-white text-center",
+                                                    h5(icon("play-circle"), "Try Demo Data", class = "mb-0")
+                                                ),
+                                                div(class = "card-body",
+                                                    p(strong("No data? Try using our demo data!"), 
+                                                      style = "color: #28a745; margin-bottom: 10px;"),
+                                                    p("Explore features with sample Internal Medicine data", 
+                                                      style = "font-size: 0.95em;"),
+                                                    
+                                                    actionButton("load_demo_data", 
+                                                                 "Load Demo Data", 
+                                                                 class = "demo-button btn-block",
+                                                                 icon = icon("play-circle")),
+                                                    
+                                                    br(),
+                                                    div(class = "alert alert-info",
+                                                        style = "font-size: 0.9em; margin-top: 15px;",
+                                                        "Demo includes 4 years of realistic milestone data")
+                                                )
+                                            )
                                      )
                                    )
+                               )
+                           )
+                    )
+                  ),
+                  
+                  # Data summary section
+                  conditionalPanel(
+                    condition = "output.data_loaded",
+                    fluidRow(
+                      column(8, offset = 2,
+                             div(class = "content-card card border-success",
+                                 div(class = "card-header bg-success text-white",
+                                     h5(icon("check-circle"), "Data Loaded Successfully", class = "mb-0")
                                  ),
-                                 
-                                 hr(),
-                                 
-                                 # Display Options (simplified - removed program median)
-                                 h6("Display Options:", style = "font-weight: bold; margin-top: 10px;"),
-                                 checkboxInput("show_program_means", "Show Program Means", value = TRUE),
-                                 checkboxInput("tables_use_filters", "Apply Filters to Tables", value = TRUE),
-                                 
-                                 br(),
-                                 
-                                 # Updated info box
-                                 div(class = "alert alert-info", style = "font-size: 0.85em;",
-                                     HTML("<strong>Info:</strong><br>
-                                      • Tables show End-Year data by default<br>
-                                      • Check 'Apply Filters to Tables' to use period/level selections<br>
-                                      • Spider plot supports multiple period comparisons<br>
-                                      • Use 'All Periods' to see combined data trends"))
+                                 div(class = "card-body",
+                                     htmlOutput("quick_summary"),
+                                     hr(),
+                                     p("Navigate to Program Overview or Milestone Analysis to begin exploring your data.",
+                                       class = "text-center text-muted")
+                                 )
                              )
-                        )
-                      ),
+                      )
+                    )
+                  ),
                   
-                  # Main content area
-                  div(id = "program-main-content", style = "flex: 1;",
-                         
-                         # Performance insights
-                         fluidRow(
-                           column(6,
-                                  div(class = "card",
-                                      div(class = "card-header", h5(icon("exclamation-triangle"), "Areas for Improvement")),
-                                      div(class = "card-body",
-                                          DT::dataTableOutput("improvement_areas")
-                                      )
-                                  )
-                           ),
-                           column(6,
-                                  div(class = "card",
-                                      div(class = "card-header", h5(icon("star"), "Areas of Strength")),
-                                      div(class = "card-body",
-                                          DT::dataTableOutput("strength_areas")
-                                      )
-                                  )
+                  # Collapsible help section
+                  fluidRow(
+                    column(10, offset = 1,
+                           br(),
+                           div(class = "card",
+                               div(class = "card-header",
+                                   h5(icon("question-circle"), "Need Help Getting Data?",
+                                      tags$button(class = "btn btn-link btn-sm float-right", 
+                                                  `data-toggle` = "collapse", 
+                                                  `data-target` = "#help-section",
+                                                  "Show/Hide Help")
+                                   )
+                               ),
+                               div(id = "help-section", class = "collapse card-body",
+                                   fluidRow(
+                                     column(6,
+                                            h6("Getting Data from WebADS:"),
+                                            tags$ol(
+                                              tags$li("Login to ACGME WebADS"),
+                                              tags$li("Go to Milestones tab"),
+                                              tags$li("Download evaluation data by period"),
+                                              tags$li("Upload CSV files here")
+                                            )
+                                     ),
+                                     column(6,
+                                            h6("Milestones 2.0 Requirements:"),
+                                            p("This platform requires Milestones 2.0 data."),
+                                            actionButton("show_milestone_dates", 
+                                                         "View Implementation Timeline", 
+                                                         class = "btn-outline-secondary btn-sm")
+                                     )
+                                   )
+                               )
                            )
-                         ),
-                         
-                         # Add period info display
-                         fluidRow(
-                           column(12,
-                                  div(style = "text-align: center; margin: 10px 0;",
-                                      htmlOutput("period_display_info")
-                                  )
-                           )
-                         ),
-                         
-                         # Spider plot section - FIXED CLOSING PARENTHESES
-                         fluidRow(
-                           column(12,
-                                  div(class = "card",
-                                      div(class = "card-header", 
-                                          h5(icon("chart-pie"), "Program Performance Spider Plot - All Sub-Competencies")
-                                      ),  # ADDED MISSING COMMA
-                                      div(class = "card-body",
-                                          plotlyOutput("program_spider", height = "600px")
-                                      )
-                                  )
-                           )
-                         ),
-                         
-                         # ADDED MISSING SECTIONS (you can add more plots here)
-                         fluidRow(
-                           column(12,
-                                  div(class = "card",
-                                      div(class = "card-header", 
-                                          h5(icon("list-alt"), "Milestone Reference Guide")
-                                      ),
-                                      div(class = "card-body",
-                                          DT::dataTableOutput("milestone_reference_table")
-                                      )
-                                  )
-                           )
-                         )
-                         
-                  )  # End column(9,...)
-                )  # End fluidRow
-              )  # End conditionalPanel
-    ),  # End Program Overview nav_panel
-    
-    # ===================================================================
-    # ENHANCED MILESTONE ANALYSIS UI - Replace the existing nav_panel in ui.R
-    # ===================================================================
-    
-    nav_panel("Milestone Analysis",
-              icon = icon("graduation-cap"),
-              
-              conditionalPanel(
-                condition = "output.data_loaded",
-                
-                div(style = "display: flex; gap: 20px;",
-                    # Left sidebar - using flexbox like Program Overview
-                    div(style = "flex: 0 0 300px;", # Fixed width sidebar
-                        div(class = "card js-sticky-sidebar",
-                            div(class = "card-header", h5("Analysis Settings")),
-                            div(class = "card-body",
-                                 
-                                 # Global threshold setting
-                                 sliderInput("milestone_threshold", 
-                                             "Proficiency Threshold:",
-                                             min = 1, max = 9, value = 7, step = 1),
-                                 p("Scale: 1-2 Beginner, 3-4 Advanced Beginner, 5-6 Competent, 7-8 Proficient, 9 Expert", 
-                                   style = "font-size: 0.85em; color: #666; margin-top: 5px;"),
-                                 
-                                 # Period filter for readiness analyses
-                                 selectInput(
-                                   "milestone_period",
-                                   "Assessment Period:",
-                                   choices = list(
-                                     "All Periods" = "all",
-                                     "Latest Year-End" = "latest_year_end"
-                                   ),
-                                   selected = "all",
-                                   width = "100%"
-                                 ),
-                                 
-                                 # Competency filter  
-                                 selectInput("milestone_competency",
-                                             "Competency Focus:",
-                                             choices = list("All Competencies" = "all"),
-                                             selected = "all"),
-                                 
-                                 hr(),
-                                 
-                                 # Graduation Analysis Options
-                                 h6("Graduation Analysis:", style = "font-weight: bold; color: #2c3e50;"),
-                                 checkboxInput("graduation_by_period", 
-                                               "Break down by individual periods", 
-                                               value = FALSE),
-                                 
-                                 hr(),
-                                 
-                                 # All Levels Analysis Options
-                                 h6("All Levels Analysis:", style = "font-weight: bold; color: #2c3e50;"),
-                                 checkboxGroupInput("all_levels_pgy",
-                                                    "Select PGY Levels:",
-                                                    choices = NULL,
-                                                    selected = NULL),
-                                 
-                                 hr(),
-                                 
-                                 # Risk level legend
-                                 div(class = "alert alert-info", style = "font-size: 0.85em;",
-                                     HTML("<strong>Risk Levels:</strong><br>
-                                      🟢 <strong>Excellent:</strong> <2.5% below threshold<br>
-                                      🟢 <strong>Good:</strong> 2.5-5% below threshold<br>
-                                      🟠 <strong>Concerning:</strong> 5-7.5% below threshold<br>
-                                      🔴 <strong>High Risk:</strong> >7.5% below threshold"))
-                            )
-                           )
-                        )
-                      ),
+                    )
+                  )
+        ),
+        
+        # ===================================================================
+        # PROGRAM OVERVIEW - SIMPLIFIED
+        # ===================================================================
+        nav_panel("Program Overview",
+                  icon = icon("chart-line"),
                   
-                  # Main Content Area
-                div(id = "milestone-main-content", style = "flex: 1;",
-                         
-                         # Section 1: Graduation Readiness (Highest PGY Only)
-                         fluidRow(
-                           column(12,
-                                  div(class = "card",
-                                      div(class = "card-header", 
-                                          h5(icon("graduation-cap"), "Graduation Readiness Analysis"),
-                                          p("Analysis of highest PGY level residents only", 
-                                            style = "margin: 0; font-size: 0.9em; color: #666;")
-                                      ),
-                                      div(class = "card-body",
-                                          plotlyOutput("graduation_readiness_chart", height = "500px")
-                                      )
-                                  )
-                           )
-                         ),
-                         
-                         br(),
-                         
-                         # Section 2: All Training Levels Analysis  
-                         fluidRow(
-                           column(12,
-                                  div(class = "card",
-                                      div(class = "card-header", 
-                                          h5(icon("users"), "All Training Levels Analysis"),
-                                          p("Comparative analysis across selected PGY levels", 
-                                            style = "margin: 0; font-size: 0.9em; color: #666;")
-                                      ),
-                                      div(class = "card-body",
-                                          plotlyOutput("all_levels_chart", height = "600px")
-                                      )
-                                  )
-                           )
-                         ),
-                         
-                         br(),
-                         
-                         # Section 3: Sub-Competency Progression Trends - MOVED CONTROLS TO TOP
-                         # Update the Milestone Analysis tab trend section
-                         fluidRow(
-                           column(4,
-                                  h6("Training Progression Analysis:", style = "font-weight: bold;"),
-                                  
-                                  selectInput("trend_subcompetency", 
-                                              "Select Sub-Competency:",
-                                              choices = NULL),
-                                  
-                                  hr(),
-                                  
-                                  h6("Add Graduation Classes for Comparison:", style = "font-weight: bold; color: #7F8C8D;"),
-                                  p("The program average is always shown. Select classes below to compare:", 
-                                    style = "font-size: 0.9em; color: #7F8C8D;"),
-                                  
-                                  checkboxGroupInput("selected_cohorts",
-                                                     "Select Classes to Overlay:",
-                                                     choices = NULL),
-                                  
-                                  fluidRow(
-                                    column(6, actionButton("select_recent_cohorts", "Recent 2", class = "btn-sm btn-outline-secondary")),
-                                    column(6, actionButton("clear_cohorts", "Clear All", class = "btn-sm btn-outline-secondary"))
-                                  )
-                           ),
-                           
-                           column(8,
-                                  plotlyOutput("cohort_trend_plot", height = "500px")
-                           )
-                         ),
-                         
-                         br(),
-                         
-                         # Section 4: Summary Statistics Table
-                         fluidRow(
-                           column(12,
-                                  div(class = "card",
-                                      div(class = "card-header", h5(icon("table"), "Detailed Metrics")),
-                                      div(class = "card-body",
-                                          
-                                          # Tabs for different data views
-                                          navset_card_tab(
-                                            nav_panel("Graduation Readiness", 
-                                                      DT::dataTableOutput("graduation_table")),
-                                            nav_panel("All Levels", 
-                                                      DT::dataTableOutput("all_levels_table")),
-                                            nav_panel("Trend Data", 
-                                                      conditionalPanel(
-                                                        condition = "input.trend_subcompetency != null && input.trend_subcompetency != ''",
-                                                        DT::dataTableOutput("trend_data_table")
-                                                      ),
-                                                      conditionalPanel(
-                                                        condition = "input.trend_subcompetency == null || input.trend_subcompetency == ''",
-                                                        div(class = "alert alert-info",
-                                                            "Select a sub-competency to view trend data.")
-                                                      ))
+                  conditionalPanel(
+                    condition = "output.data_loaded",
+                    
+                    # Tab Description
+                    fluidRow(
+                      column(12,
+                             div(class = "alert alert-info mb-4",
+                                 h6("Program Overview", style = "margin-bottom: 10px; color: #2c3e50;"),
+                                 p("Get a comprehensive view of your program's milestone performance across all residents and competencies. This dashboard identifies areas of strength and improvement while providing visual insights into overall program trends. Use the controls to filter by specific time periods and training levels for targeted analysis.",
+                                   style = "margin-bottom: 0; font-size: 0.95em;")
+                             )
+                      )
+                    ),
+                    
+                    fluidRow(
+                      # Sidebar
+                      column(3,
+                             div(class = "sidebar-card js-sticky-sidebar",
+                                 div(class = "card-header", h6("Analysis Settings")),
+                                 div(class = "card-body",
+                                     
+                                     # Controls explanation
+                                     div(class = "alert alert-light mb-3",
+                                         style = "font-size: 0.85em; padding: 10px;",
+                                         HTML("<strong>Controls Guide:</strong><br>
+                                               • <strong>Assessment Period:</strong> Choose evaluation timeframe<br>
+                                               • <strong>Training Levels:</strong> Select PGY levels to include<br>
+                                               • <strong>Display Options:</strong> Customize chart and table displays")
+                                     ),
+                                     
+                                     # Simplified period selection
+                                     div(class = "section-title", "Assessment Period"),
+                                     radioButtons("period_selection", "",
+                                                  choices = list(
+                                                    "Latest End-Year" = "recent_end",
+                                                    "Latest Mid-Year" = "recent_mid",
+                                                    "Specific Period" = "specific",
+                                                    "All Periods" = "all_periods"
+                                                  ),
+                                                  selected = "recent_end"),
+                                     
+                                     conditionalPanel(
+                                       condition = "input.period_selection == 'specific'",
+                                       selectInput("specific_period", "Choose Period:",
+                                                   choices = NULL)
+                                     ),
+                                     
+                                     # PGY selection
+                                     div(class = "section-title", "Training Levels"),
+                                     checkboxInput("select_all_pgy", "Select All", value = TRUE),
+                                     div(class = "checkbox-group",
+                                         uiOutput("pgy_checkboxes")
+                                     ),
+                                     
+                                     # Display options
+                                     div(class = "section-title", "Display Options"),
+                                     checkboxInput("show_program_means", "Show Program Averages", value = TRUE),
+                                     checkboxInput("tables_use_filters", "Apply Filters to Tables", value = TRUE)
+                                 )
+                             )
+                      ),
+                      
+                      # Main content
+                      column(9,
+                             # Performance insights
+                             fluidRow(
+                               column(6,
+                                      div(class = "content-card card",
+                                          div(class = "card-header", 
+                                              h6(icon("exclamation-triangle", style = "color: #fd7e14;"), "Areas for Improvement")
+                                          ),
+                                          div(class = "card-body",
+                                              DT::dataTableOutput("improvement_areas")
                                           )
                                       )
-                                  )
-                           )
-                         )
+                               ),
+                               column(6,
+                                      div(class = "content-card card",
+                                          div(class = "card-header", 
+                                              h6(icon("star", style = "color: #28a745;"), "Areas of Strength")
+                                          ),
+                                          div(class = "card-body",
+                                              DT::dataTableOutput("strength_areas")
+                                          )
+                                      )
+                               )
+                             ),
+                             
+                             # Spider plot
+                             div(class = "content-card card",
+                                 div(class = "card-header", 
+                                     h6(icon("chart-pie"), "Program Performance Overview")
+                                 ),
+                                 div(class = "card-body",
+                                     plotlyOutput("program_spider", height = "600px")
+                                 )
+                             ),
+                             
+                             # Milestone reference
+                             div(class = "content-card card",
+                                 div(class = "card-header", 
+                                     h6(icon("list-alt"), "Milestone Reference Guide")
+                                 ),
+                                 div(class = "card-body",
+                                     DT::dataTableOutput("milestone_reference_table")
+                                 )
+                             )
+                      )
+                    )
+                  ),
+                  
+                  conditionalPanel(
+                    condition = "!output.data_loaded",
+                    div(class = "alert alert-info text-center",
+                        icon("info-circle"), " Please load data from the Get Started tab.")
                   )
-              ),
-              
-              # Show message when no data loaded
-              conditionalPanel(
-                condition = "!output.data_loaded",
-                div(class = "alert alert-info",
-                    icon("info-circle"), " Please upload and process CSV data first.")
-              )
-    ),
-    
-    # Individual Residents Tab
-    create_individual_assessment_ui(),
-    
-    # Data Overview Tab
-    nav_panel("Data Overview",
-              icon = icon("table"),
-              
-              conditionalPanel(
-                condition = "output.data_loaded",
-                
-                h4("Milestone Definitions"),
-                p("Sub-competencies extracted from your data:"),
-                DT::dataTableOutput("milestone_table"),
-                
-                br(),
-                
-                h4("Sample Evaluation Data"),
-                p("Sample processed evaluation records:"),
-                DT::dataTableOutput("evaluation_sample")
-              ),
-              
-              conditionalPanel(
-                condition = "!output.data_loaded",
-                div(class = "alert alert-info",
-                    icon("info-circle"), " Please upload and process CSV data first.")
-              )
-    )
+        ),
+        
+        # ===================================================================
+        # MILESTONE ANALYSIS - SIMPLIFIED
+        # ===================================================================
+        nav_panel("Milestone Analysis",
+                  icon = icon("graduation-cap"),
+                  
+                  conditionalPanel(
+                    condition = "output.data_loaded",
+                    
+                    # Tab Description
+                    fluidRow(
+                      column(12,
+                             div(class = "alert alert-info mb-4",
+                                 h6("Milestone Analysis", style = "margin-bottom: 10px; color: #2c3e50;"),
+                                 p("Dive deeper into milestone performance with readiness analysis, training level comparisons, and progression tracking. This section helps identify residents who may need additional support and tracks how competencies develop throughout training. Set your proficiency threshold and filters to customize the analysis.",
+                                   style = "margin-bottom: 0; font-size: 0.95em;")
+                             )
+                      )
+                    ),
+                    
+                    fluidRow(
+                      # Sidebar
+                      column(3,
+                             div(class = "sidebar-card js-sticky-sidebar",
+                                 div(class = "card-header", h6("Analysis Settings")),
+                                 div(class = "card-body",
+                                     
+                                     # Controls explanation
+                                     div(class = "alert alert-light mb-3",
+                                         style = "font-size: 0.85em; padding: 10px;",
+                                         HTML("<strong>Controls Guide:</strong><br>
+                                               • <strong>Proficiency Threshold:</strong> Score considered 'proficient' (typically 7)<br>
+                                               • <strong>Filters:</strong> Narrow analysis to specific periods/competencies<br>
+                                               • <strong>Training Levels:</strong> Select PGY years to compare")
+                                     ),
+                                     
+                                     # Risk level legend
+                                     div(class = "alert alert-warning mb-3", 
+                                         style = "font-size: 0.85em; padding: 10px;",
+                                         HTML("<strong>Risk Levels:</strong><br>
+                                               🟢 <strong>Excellent:</strong> <2.5% below threshold<br>
+                                               🟢 <strong>Good:</strong> 2.5-5% below threshold<br>
+                                               🟠 <strong>Concerning:</strong> 5-7.5% below threshold<br>
+                                               🔴 <strong>High Risk:</strong> >7.5% below threshold")
+                                     ),
+                                     
+                                     # Threshold
+                                     div(class = "section-title", "Proficiency Threshold"),
+                                     sliderInput("milestone_threshold", "",
+                                                 min = 1, max = 9, value = 7, step = 1),
+                                     p("7 = Proficient level", 
+                                       style = "font-size: 0.8em; color: #6c757d;"),
+                                     
+                                     # Period and competency filters
+                                     div(class = "section-title", "Filters"),
+                                     selectInput("milestone_period", "Period:",
+                                                 choices = list("All Periods" = "all"),
+                                                 selected = "all"),
+                                     
+                                     selectInput("milestone_competency", "Competency:",
+                                                 choices = list("All Competencies" = "all"),
+                                                 selected = "all"),
+                                     
+                                     # PGY selection for all levels analysis
+                                     div(class = "section-title", "Training Levels"),
+                                     div(class = "checkbox-group",
+                                         checkboxGroupInput("all_levels_pgy", "",
+                                                            choices = NULL)
+                                     )
+                                 )
+                             )
+                      ),
+                      
+                      # Main content
+                      column(9,
+                             # Graduation readiness
+                             div(class = "content-card card",
+                                 div(class = "card-header", 
+                                     h6(icon("graduation-cap"), "Graduation Readiness Analysis")
+                                 ),
+                                 div(class = "card-body",
+                                     plotlyOutput("graduation_readiness_chart", height = "500px")
+                                 )
+                             ),
+                             
+                             # All levels analysis
+                             div(class = "content-card card",
+                                 div(class = "card-header", 
+                                     h6(icon("users"), "All Training Levels Analysis")
+                                 ),
+                                 div(class = "card-body",
+                                     plotlyOutput("all_levels_chart", height = "600px")
+                                 )
+                             ),
+                             
+                             # Trend analysis
+                             div(class = "content-card card",
+                                 div(class = "card-header", 
+                                     h6(icon("line-chart"), "Sub-Competency Progression")
+                                 ),
+                                 div(class = "card-body",
+                                     fluidRow(
+                                       column(4,
+                                              selectInput("trend_subcompetency", 
+                                                          "Select Sub-Competency:",
+                                                          choices = NULL),
+                                              
+                                              h6("Add Graduation Classes:", 
+                                                 style = "margin-top: 20px; color: #6c757d;"),
+                                              checkboxGroupInput("selected_cohorts", "",
+                                                                 choices = NULL),
+                                              
+                                              div(class = "btn-group-sm",
+                                                  actionButton("select_recent_cohorts", "Recent 2", 
+                                                               class = "btn-outline-secondary"),
+                                                  actionButton("clear_cohorts", "Clear", 
+                                                               class = "btn-outline-secondary")
+                                              )
+                                       ),
+                                       column(8,
+                                              plotlyOutput("cohort_trend_plot", height = "400px")
+                                       )
+                                     )
+                                 )
+                             ),
+                             
+                             # Summary tables
+                             div(class = "content-card card",
+                                 div(class = "card-header", h6(icon("table"), "Detailed Metrics")),
+                                 div(class = "card-body",
+                                     navset_card_tab(
+                                       nav_panel("Graduation", DT::dataTableOutput("graduation_table")),
+                                       nav_panel("All Levels", DT::dataTableOutput("all_levels_table"))
+                                     )
+                                 )
+                             )
+                      )
+                    )
+                  ),
+                  
+                  conditionalPanel(
+                    condition = "!output.data_loaded",
+                    div(class = "alert alert-info text-center",
+                        icon("info-circle"), " Please load data from the Get Started tab.")
+                  )
+        ),
+        
+        # Individual Assessment
+        create_individual_assessment_ui(),
+        
+        # Data Overview
+        nav_panel("Data Overview",
+                  icon = icon("table"),
+                  
+                  conditionalPanel(
+                    condition = "output.data_loaded",
+                    
+                    # Tab Description
+                    fluidRow(
+                      column(12,
+                             div(class = "alert alert-info mb-4",
+                                 h6("Data Overview", style = "margin-bottom: 10px; color: #2c3e50;"),
+                                 p("Review your uploaded milestone data structure and definitions. This section displays the milestone framework extracted from your data and provides a sample of the processed evaluation records for verification.",
+                                   style = "margin-bottom: 0; font-size: 0.95em;")
+                             )
+                      )
+                    ),
+                    
+                    fluidRow(
+                      column(12,
+                             div(class = "content-card card",
+                                 div(class = "card-header", h6("Milestone Definitions")),
+                                 div(class = "card-body",
+                                     DT::dataTableOutput("milestone_table")
+                                 )
+                             ),
+                             
+                             div(class = "content-card card",
+                                 div(class = "card-header", h6("Sample Evaluation Data")),
+                                 div(class = "card-body",
+                                     DT::dataTableOutput("evaluation_sample")
+                                 )
+                             )
+                      )
+                    )
+                  ),
+                  
+                  conditionalPanel(
+                    condition = "!output.data_loaded",
+                    div(class = "alert alert-info text-center",
+                        icon("info-circle"), " Please load data from the Get Started tab.")
+                  )
+        )
+      )
   )
 )

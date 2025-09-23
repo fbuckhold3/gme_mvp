@@ -5,13 +5,22 @@
 server <- function(input, output, session) {
   
   # Store loaded data
+  values <- reactiveValues(
+    uploaded_data = NULL,
+    data_loaded = FALSE,
+    demo_mode = FALSE,
+    program_name = NULL
+  )
+  
+  # ADD THIS - Missing milestone_data reactive definition
   milestone_data <- reactiveVal(NULL)
   
-  # Data loaded indicator
+  # Data loaded indicator - FIXED to use milestone_data
   output$data_loaded <- reactive({
     !is.null(milestone_data())
   })
   outputOptions(output, "data_loaded", suspendWhenHidden = FALSE)
+
   
   # Program subtitle
   output$program_subtitle <- renderUI({
@@ -113,7 +122,238 @@ server <- function(input, output, session) {
     }
   })
   
-
+  observeEvent(input$show_milestone_dates, {
+    showModal(modalDialog(
+      title = "Milestones 2.0 Implementation Timeline",
+      size = "l",
+      
+      div(
+        h5("Complete List by Implementation Date"),
+        
+        tabsetPanel(
+          tabPanel("2021 (Current)",
+                   div(class = "mt-3",
+                       h6("Internal Medicine and Core Specialties:"),
+                       tags$ul(
+                         tags$li("Internal Medicine"),
+                         tags$li("Internal Medicine-Pediatrics"), 
+                         tags$li("Hematology and Medical Oncology"),
+                         tags$li("Infectious Disease"),
+                         tags$li("Nephrology"),
+                         tags$li("And many others...")
+                       )
+                   )
+          ),
+          
+          tabPanel("2022",
+                   div(class = "mt-3",
+                       h6("Surgical and Other Specialties:"),
+                       tags$ul(
+                         tags$li("Surgery"),
+                         tags$li("Obstetrics and Gynecology"),
+                         tags$li("Orthopedic Surgery"),
+                         tags$li("Plastic Surgery"),
+                         tags$li("And many subspecialties...")
+                       )
+                   )
+          ),
+          
+          tabPanel("2023",
+                   div(class = "mt-3",
+                       h6("Pediatric Subspecialties:"),
+                       tags$ul(
+                         tags$li("Pediatric Cardiology"),
+                         tags$li("Pediatric Critical Care Medicine"),
+                         tags$li("Pediatric Endocrinology"),
+                         tags$li("And other pediatric subspecialties...")
+                       )
+                   )
+          ),
+          
+          tabPanel("2024",
+                   div(class = "mt-3",
+                       h6("Latest Additions:"),
+                       tags$ul(
+                         tags$li("Interventional Pulmonology")
+                       )
+                   )
+          )
+        ),
+        
+        br(),
+        div(class = "alert alert-info",
+            "For the complete and most up-to-date list, visit: ",
+            tags$a("ACGME Milestones 2.0 Effective Dates", 
+                   href = "https://www.acgme.org/globalassets/PDFs/Milestones/Milestones2.0EffectiveDates.pdf",
+                   target = "_blank")
+        )
+      ),
+      
+      footer = modalButton("Close")
+    ))
+  })
+  
+  observeEvent(input$load_demo_data, {
+    
+    updateActionButton(session, "load_demo_data", 
+                       label = "Loading...", 
+                       icon = icon("spinner", class = "fa-spin"))
+    
+    tryCatch({
+      
+      # Check if RDS file exists
+      if (!file.exists("data/acme_miles_demo_data.rds")) {
+        stop("Demo RDS file not found at data/acme_miles_demo_data.rds")
+      }
+      
+      cat("Loading RDS demo data...\n")
+      
+      # Load your RDS demo data (now contains both evaluations and milestone_definitions)
+      demo_data <- readRDS("data/acme_miles_demo_data.rds")
+      demo_df <- demo_data$evaluations
+      milestone_defs <- demo_data$milestone_definitions
+      
+      cat("RDS loaded with", nrow(demo_df), "records\n")
+      cat("Columns:", paste(names(demo_df), collapse = ", "), "\n")
+      cat("Milestone definitions:", nrow(milestone_defs), "milestones\n")
+      
+      # Process evaluation data (minimal processing since it's already correct)
+      demo_processed <- demo_df %>%
+        mutate(
+          # Ensure proper data types
+          Rating = as.numeric(Rating)
+        )
+      
+      cat("Data processing complete\n")
+      
+      # Create the data structure your app expects
+      processed_data <- list(
+        evaluations = demo_processed,
+        program_info = list(
+          program_name = "Acme Internal Medicine Program",
+          specialty_name = "Internal Medicine",
+          sponsor_name = "Acme Medical Center/University School of Medicine"
+        ),
+        summary = list(
+          n_residents = length(unique(demo_processed$Resident_ID)),
+          n_milestones = length(unique(demo_processed$Sub_Competency)),
+          n_evaluations = nrow(demo_processed),
+          n_periods = length(unique(demo_processed$Period)),
+          training_levels = sort(unique(demo_processed$PGY_Level))
+        ),
+        milestone_structure = list(
+          definitions = milestone_defs  # Use the actual milestone definitions with full descriptions
+        ),
+        raw_data = demo_processed,
+        residents = demo_processed %>% 
+          select(any_of(c("Resident_ID", "First_Name", "Last_Name", "Resident_Year", 
+                          "PGY_Level", "Resident_Name"))) %>%
+          distinct()
+      )
+      
+      cat("Setting milestone_data with", nrow(processed_data$evaluations), "evaluation records\n")
+      
+      # Set the milestone_data reactive
+      milestone_data(processed_data)
+      
+      # Update UI elements
+      output$status_text <- renderText({
+        paste(
+          "✓ Demo data loaded successfully!",
+          paste("📊 Program:", processed_data$program_info$program_name),
+          paste("📝 Records:", processed_data$summary$n_evaluations),
+          paste("👥 Residents:", processed_data$summary$n_residents),
+          paste("🎯 Sub-competencies:", processed_data$summary$n_milestones),
+          paste("📅 Periods:", processed_data$summary$n_periods),
+          paste("🏥 Training Levels:", paste(processed_data$summary$training_levels, collapse = ", ")),
+          sep = "\n"
+        )
+      })
+      
+      # Update quick summary
+      output$quick_summary <- renderUI({
+        # Show period breakdown
+        period_breakdown <- processed_data$evaluations %>%
+          count(Period, name = "records") %>%
+          mutate(display = paste0(Period, " (", records, " records)"))
+        
+        tagList(
+          div(class = "alert alert-success",
+              icon("check-circle"), " Demo data loaded successfully!"
+          ),
+          h6("Dataset Overview:"),
+          tags$ul(
+            tags$li(strong("Program: "), processed_data$program_info$program_name),
+            tags$li(strong("Residents: "), processed_data$summary$n_residents),
+            tags$li(strong("Milestones: "), processed_data$summary$n_milestones),
+            tags$li(strong("Total Records: "), format(processed_data$summary$n_evaluations, big.mark = ",")),
+            tags$li(strong("PGY Levels: "), paste(processed_data$summary$training_levels, collapse = ", "))
+          ),
+          h6("Evaluation Periods:"),
+          tags$ul(
+            lapply(period_breakdown$display, function(x) tags$li(x))
+          ),
+          div(class = "mt-3",
+              p("Demo data includes both Mid-Year and End-Year evaluations showing realistic progression!", 
+                class = "text-muted small")
+          )
+        )
+      })
+      
+      # Update period choices for analysis
+      periods <- sort(unique(demo_processed$Period))
+      updateSelectInput(session, "specific_period", 
+                        choices = setNames(periods, periods),
+                        selected = periods[length(periods)])
+      
+      # Update milestone period choices
+      milestone_period_choices <- get_all_period_choices(list(evaluations = demo_processed))
+      updateSelectInput(session, "milestone_period", 
+                        choices = milestone_period_choices,
+                        selected = "all")
+      
+      # Update competency choices
+      competencies <- unique(demo_processed$Competency)
+      competency_choices <- c("All Competencies" = "all")
+      if (length(competencies) > 0) {
+        competency_choices <- c(competency_choices, setNames(competencies, competencies))
+      }
+      updateSelectInput(session, "milestone_competency", choices = competency_choices)
+      updateSelectInput(session, "trend_competency", choices = competency_choices)
+      
+      # Success notification
+      showNotification(
+        "Demo data loaded! Explore Program Overview and Milestone Analysis tabs to see trends.",
+        type = "message",
+        duration = 5
+      )
+      
+      # Update button
+      updateActionButton(session, "load_demo_data", 
+                         label = "Demo Data Loaded ✓", 
+                         icon = icon("check"))
+      
+      cat("Demo loading complete!\n")
+      
+    }, error = function(e) {
+      cat("Demo loading error:", e$message, "\n")
+      
+      # More detailed error info
+      if (!file.exists("data/acme_miles_demo_data.rds")) {
+        error_msg <- "Demo RDS file not found. Please ensure 'data/acme_miles_demo_data.rds' exists in your app directory."
+      } else {
+        error_msg <- paste("Error processing demo data:", e$message)
+      }
+      
+      showNotification(error_msg, type = "error", duration = 10)
+      
+      # Reset button
+      updateActionButton(session, "load_demo_data", 
+                         label = "Try Demo Data - Acme Internal Medicine", 
+                         icon = icon("play-circle"))
+    })
+  })
+  
   # Get current period selection for analysis
   # FIND THIS FUNCTION (around line 124) AND REPLACE IT:
   get_current_period <- reactive({

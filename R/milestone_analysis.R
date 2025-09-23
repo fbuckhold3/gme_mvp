@@ -712,7 +712,7 @@ create_trend_chart_enhanced <- function(trend_data, show_total_average = TRUE) {
   return(fig)
 }
 
-# Enhanced All Levels Chart with Data Check
+# Enhanced All Levels Chart with PGY Colors and Percentage Labels
 create_all_levels_chart <- function(readiness_data) {
   
   # Check if this is an error/insufficient data response
@@ -748,60 +748,141 @@ create_all_levels_chart <- function(readiness_data) {
              add_annotations(text = "No data available", x = 0.5, y = 0.5, showarrow = FALSE))
   }
   
-  # Continue with your existing chart creation logic...
-  colors <- c(
-    "Excellent (<2.5%)" = "#4CAF50",
-    "Good (2.5-5%)" = "#8BC34A",  
-    "Concerning (5-7.5%)" = "#FF9800",
-    "High Risk (>7.5%)" = "#F44336"
+  # Define distinct colors for up to 10 PGY levels
+  pgy_colors <- c(
+    "PGY-1" = "#E74C3C",  # Red
+    "PGY-2" = "#3498DB",  # Blue  
+    "PGY-3" = "#2ECC71",  # Green
+    "PGY-4" = "#F39C12",  # Orange
+    "PGY-5" = "#9B59B6",  # Purple
+    "PGY-6" = "#E67E22",  # Dark Orange
+    "PGY-7" = "#1ABC9C",  # Teal
+    "PGY-8" = "#34495E",  # Dark Gray
+    "PGY-9" = "#E91E63",  # Pink
+    "PGY-10" = "#795548"  # Brown
   )
   
-  fig <- plot_ly(readiness_data)
+  # Get unique PGY levels and assign colors
+  pgy_levels <- sort(unique(readiness_data$PGY_Level))
   
-  pgy_levels <- unique(readiness_data$PGY_Level)
+  # Create chart data with proper ordering
+  chart_data <- readiness_data %>%
+    mutate(
+      # Create combined identifier for x-axis
+      x_label = paste(Sub_Competency, "-", PGY_Level),
+      # Round percentages for display
+      percent_label = paste0(round(percent_below_threshold, 1), "%")
+    ) %>%
+    arrange(Sub_Competency, PGY_Level)
   
-  for (i in seq_along(pgy_levels)) {
-    level_data <- readiness_data %>% filter(PGY_Level == pgy_levels[i])
+  # Create plotly figure
+  fig <- plot_ly(chart_data)
+  
+  # Add traces for each PGY level
+  for (pgy_level in pgy_levels) {
+    level_data <- chart_data %>% filter(PGY_Level == pgy_level)
+    
+    # Get color for this PGY level
+    bar_color <- if (pgy_level %in% names(pgy_colors)) {
+      pgy_colors[[pgy_level]]
+    } else {
+      # Fallback to a default color if we exceed our predefined colors
+      rainbow(length(pgy_levels))[which(pgy_levels == pgy_level)]
+    }
     
     fig <- fig %>% add_trace(
-      x = ~competency_pgy,
-      y = ~percent_below_threshold,
-      name = pgy_levels[i],
-      type = 'bar',
       data = level_data,
+      x = ~Sub_Competency,
+      y = ~percent_below_threshold,
+      name = pgy_level,
+      type = 'bar',
       marker = list(
-        color = colors[level_data$readiness_category],
-        line = list(color = 'white', width = 1)
+        color = bar_color,
+        line = list(color = 'rgba(255,255,255,0.8)', width = 1)
+      ),
+      text = ~percent_label,
+      textposition = 'outside',
+      textfont = list(
+        size = 12,
+        color = 'black',
+        family = 'Arial, sans-serif'
       ),
       hovertemplate = paste0(
-        '<b>', level_data$Sub_Competency, ' - ', level_data$PGY_Level, '</b><br>',
-        'Below Threshold: ', round(level_data$percent_below_threshold, 1), '%<br>',
-        'Mean Score: ', round(level_data$mean_score, 2), '<br>',
-        'Risk Level: ', level_data$readiness_category,
+        '<b>', level_data$Sub_Competency, '</b><br>',
+        '<b>PGY Level:</b> ', level_data$PGY_Level, '<br>',
+        '<b>Below Threshold:</b> ', level_data$percent_label, '<br>',
+        '<b>Mean Score:</b> ', round(level_data$mean_score, 2), '<br>',
+        '<b>Risk Level:</b> ', level_data$readiness_category, '<br>',
+        '<b>Residents:</b> ', level_data$total_residents, '<br>',
+        '<b>Evaluations:</b> ', level_data$total_evaluations,
         '<extra></extra>'
       )
     )
   }
   
+  # Calculate y-axis range to accommodate text labels
+  max_percent <- max(chart_data$percent_below_threshold, na.rm = TRUE)
+  y_range_max <- max(max_percent * 1.15, 10)  # At least 10% or 15% above max value
+  
+  # Layout configuration
   fig <- fig %>% layout(
     title = list(
-      text = paste0("<b>All Training Levels - Readiness Analysis</b><br>",
-                    "<i>Threshold: ", readiness_data$threshold_used[1], "</i>"),
-      font = list(size = 16)
+      text = paste0(
+        "<b>All Training Levels - Readiness Analysis</b><br>",
+        "<span style='font-size:14px; color:#7f8c8d;'>Threshold: ", 
+        readiness_data$threshold_used[1], 
+        " | Percentage of evaluations below proficiency threshold</span>"
+      ),
+      font = list(size = 18, family = "Arial, sans-serif", color = "#2c3e50")
     ),
     xaxis = list(
-      title = "Sub-Competency by PGY Level",
-      tickangle = -45
+      title = list(
+        text = "Sub-Competency",
+        font = list(size = 14, family = "Arial, sans-serif", color = "#34495e")
+      ),
+      tickangle = -45,
+      tickfont = list(size = 12, color = "#34495e", family = "Arial, sans-serif"),
+      categoryorder = "category ascending"
     ),
     yaxis = list(
-      title = "Percentage Below Threshold (%)"
+      title = list(
+        text = "Percentage Below Threshold (%)",
+        font = list(size = 14, family = "Arial, sans-serif", color = "#34495e")
+      ),
+      range = c(0, y_range_max),
+      tickfont = list(size = 12, color = "#34495e", family = "Arial, sans-serif"),
+      gridcolor = 'rgba(52, 73, 94, 0.15)',
+      zeroline = TRUE,
+      zerolinecolor = 'rgba(52, 73, 94, 0.3)',
+      zerolinewidth = 1
     ),
     barmode = 'group',
+    bargap = 0.15,
+    showlegend = TRUE,
     legend = list(
-      title = list(text = "PGY Level")
+      title = list(
+        text = "<b>Training Level</b>",
+        font = list(size = 13, family = "Arial, sans-serif", color = "#2c3e50")
+      ),
+      orientation = "h",
+      x = 0.5,
+      xanchor = 'center',
+      y = -0.25,
+      font = list(size = 12, family = "Arial, sans-serif", color = "#2c3e50"),
+      bgcolor = 'rgba(255,255,255,0.8)',
+      bordercolor = 'rgba(0,0,0,0.1)',
+      borderwidth = 1
     ),
-    margin = list(b = 150)
-  )
+    paper_bgcolor = 'white',
+    plot_bgcolor = 'rgba(248, 249, 250, 0.8)',
+    margin = list(t = 100, b = 120, l = 80, r = 80),
+    hovermode = 'closest'
+  ) %>%
+    plotly::config(
+      displayModeBar = TRUE,
+      displaylogo = FALSE,
+      modeBarButtonsToRemove = c('pan2d', 'select2d', 'lasso2d', 'autoScale2d')
+    )
   
   return(fig)
 }

@@ -14,6 +14,16 @@ create_individual_assessment_ui <- function() {
             conditionalPanel(
               condition = "output.data_loaded",
               
+              fluidRow(
+                column(12,
+                       div(class = "alert alert-info mb-4",
+                           h6("Individual Assessment", style = "margin-bottom: 10px; color: #2c3e50;"),
+                           p("Focus on individual resident performance with detailed milestone tracking and comparative analysis. Select a resident to view their progression over time, compare their performance to program averages, and identify specific areas for development or recognition.",
+                             style = "margin-bottom: 0; font-size: 0.95em;")
+                       )
+                )
+              ),
+              
               # Control Panel
               fluidRow(
                 column(3,
