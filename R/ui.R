@@ -57,185 +57,249 @@ section_header <- function(title, help_text = NULL, icon_name = NULL) {
 # =============================================================================
 
 ui <- fluidPage(
-  # Enhanced head section with comprehensive JavaScript and CSS
+  # PURE JAVASCRIPT STICKY SOLUTION - Replace your tags$head() with this:
+  
   tags$head(
-    tags$link(rel = "stylesheet", type = "text/css", href = "styles.css"),
     tags$title("GME Milestone Platform"),
     
+    # Minimal CSS - remove all sticky positioning attempts
     tags$style(HTML("
-      .js-sticky-sidebar {
-        position: -webkit-sticky;
-        position: sticky;
-        top: 20px;
-        z-index: 1000;
-        max-height: calc(100vh - 40px);
-        overflow-y: auto;
-      }
-      
-      .sidebar-card {
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        border: none;
-        border-radius: 8px;
-      }
-      
-      .sidebar-card .card-header {
-        background-color: #f8f9fa;
-        border-bottom: 1px solid #dee2e6;
-        font-weight: 600;
-        color: #495057;
-      }
-      
-      .section-title {
-        font-weight: 600;
-        color: #495057;
-        margin-top: 20px;
-        margin-bottom: 10px;
-        font-size: 0.95rem;
-      }
-      
-      .section-title:first-child {
-        margin-top: 10px;
-      }
-      
-      .checkbox-group {
-        max-height: 200px;
-        overflow-y: auto;
-        border: 1px solid #dee2e6;
-        border-radius: 4px;
-        padding: 8px;
-        background-color: #fafafa;
-      }
-      
-      .content-card {
-        margin-bottom: 25px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        border: none;
-        border-radius: 8px;
-      }
-      
-      .content-card .card-header {
-        background-color: #ffffff;
-        border-bottom: 2px solid #e9ecef;
-        font-weight: 600;
-        color: #495057;
-      }
-    ")),
+    .main-container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
     
-    # Enhanced JavaScript for tooltips, progressive disclosure, and UX improvements
+    /* Normal sidebar styling - NO sticky positioning */
+    .js-sticky-sidebar {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      z-index: 1000;
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+    }
+    
+    /* When JavaScript makes it fixed */
+    .js-sticky-sidebar.is-fixed {
+      position: fixed !important;
+      top: 20px !important;
+    }
+    
+    .content-card {
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 1.5rem;
+      min-height: 500px; /* Ensure scrollable content */
+      padding: 20px;
+      background: white;
+    }
+    
+    .section-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #2C3E50;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid #dee2e6;
+    }
+    
+    .checkbox-group {
+      max-height: 200px;
+      overflow-y: auto;
+      padding: 0.5rem;
+      background: white;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+    }
+    
+    .advanced-controls {
+      display: none;
+      margin-top: 15px;
+      padding: 15px;
+      background: rgba(0,0,0,0.02);
+      border-radius: 5px;
+    }
+  ")),
+    
+    # Pure JavaScript scroll handler
     tags$script(HTML("
-      $(document).ready(function(){
-        // Initialize tooltips with enhanced options
-        $('[data-toggle=\"tooltip\"]').tooltip({
-          html: true,
-          delay: { show: 300, hide: 100 },
-          boundary: 'window'
+    $(document).ready(function(){
+      console.log('JavaScript scroll sticky implementation');
+      
+      var stickyElements = [];
+      
+      function initScrollSticky() {
+        // Clear previous sticky elements
+        stickyElements = [];
+        
+        $('.js-sticky-sidebar').each(function() {
+          var $sidebar = $(this);
+          var $container = $sidebar.closest('.row');
+          var $column = $sidebar.parent();
+          
+          // Store initial values
+          var stickyData = {
+            sidebar: $sidebar,
+            container: $container,
+            column: $column,
+            initialTop: $sidebar.offset().top,
+            initialWidth: $sidebar.outerWidth(),
+            isFixed: false
+          };
+          
+          stickyElements.push(stickyData);
+          
+          console.log('Registered sticky element:', {
+            initialTop: stickyData.initialTop,
+            initialWidth: stickyData.initialWidth,
+            containerHeight: $container.outerHeight()
+          });
         });
         
-        // Progressive disclosure functionality
-        $('.advanced-controls').hide();
-        $('.show-advanced').click(function(e){
-          e.preventDefault();
-          $('.advanced-controls').slideToggle(300);
-          var icon = $(this).find('i.fa-chevron-down, i.fa-chevron-up');
-          if (icon.hasClass('fa-chevron-down')) {
-            icon.removeClass('fa-chevron-down').addClass('fa-chevron-up');
-            $(this).find('.button-text').text('Hide Advanced Options');
-          } else {
-            icon.removeClass('fa-chevron-up').addClass('fa-chevron-down');
-            $(this).find('.button-text').text('Show Advanced Options');
-          }
+        // Set up scroll handler
+        setupScrollHandler();
+      }
+      
+      function setupScrollHandler() {
+        var $window = $(window);
+        var stickyOffset = 20;
+        
+        // Remove previous scroll handlers
+        $window.off('scroll.customSticky resize.customSticky');
+        
+        function updateStickyPositions() {
+          var scrollTop = $window.scrollTop();
+          
+          stickyElements.forEach(function(sticky, index) {
+            var shouldBeFixed = scrollTop + stickyOffset > sticky.initialTop;
+            var containerBottom = sticky.container.offset().top + sticky.container.outerHeight();
+            var sidebarHeight = sticky.sidebar.outerHeight();
+            var fitsInViewport = sidebarHeight + stickyOffset < $window.height();
+            var withinContainer = scrollTop + sidebarHeight + stickyOffset < containerBottom;
+            
+            if (shouldBeFixed && fitsInViewport && withinContainer) {
+              // Make it fixed
+              if (!sticky.isFixed) {
+                console.log('Making sidebar', index, 'fixed');
+                sticky.sidebar.css({
+                  'position': 'fixed',
+                  'top': stickyOffset + 'px',
+                  'width': sticky.column.width() + 'px',
+                  'z-index': '1000'
+                }).addClass('is-fixed');
+                sticky.isFixed = true;
+              }
+            } else {
+              // Make it static
+              if (sticky.isFixed) {
+                console.log('Making sidebar', index, 'static');
+                sticky.sidebar.css({
+                  'position': 'static',
+                  'top': 'auto',
+                  'width': 'auto',
+                  'z-index': 'auto'
+                }).removeClass('is-fixed');
+                sticky.isFixed = false;
+              }
+            }
+          });
+        }
+        
+        // Throttled scroll handler for better performance
+        var scrollTimeout;
+        $window.on('scroll.customSticky', function() {
+          if (scrollTimeout) clearTimeout(scrollTimeout);
+          scrollTimeout = setTimeout(updateStickyPositions, 16); // ~60fps
         });
         
-        // Enhanced loading states for buttons
-        $('.btn-loading').click(function(){
-          var btn = $(this);
-          var originalHtml = btn.html();
-          btn.data('original-html', originalHtml);
-          btn.prop('disabled', true);
-          btn.html('<i class=\"fas fa-spinner fa-spin\"></i> Processing...');
-        });
-        
-        // Form validation enhancements
-        $('.required-field').on('blur change', function(){
-          var field = $(this);
-          if(field.val() === '' || field.val() === null) {
-            field.addClass('is-invalid');
-            field.siblings('.invalid-feedback').show();
-          } else {
-            field.removeClass('is-invalid');
-            field.siblings('.invalid-feedback').hide();
-          }
-        });
-        
-        // Enhanced file input styling
-        $('.custom-file-input').on('change', function() {
-          var files = $(this)[0].files;
-          var label = $(this).siblings('.custom-file-label');
-          if (files.length === 0) {
-            label.text('Choose file(s)');
-          } else if (files.length === 1) {
-            label.text(files[0].name);
-          } else {
-            label.text(files.length + ' files selected');
-          }
-        });
-        
-        // Smooth scrolling for navigation
-        $('a[href^=\"#\"]').click(function(e) {
-          var target = $(this.getAttribute('href'));
-          if (target.length) {
-            e.preventDefault();
-            $('html, body').stop().animate({
-              scrollTop: target.offset().top - 70
-            }, 500);
-          }
-        });
-        
-        // Navigation helpers
-        $('#goto_overview').click(function(){
-          $('#main_tabs a[href*=\"program-overview\"]').tab('show');
-        });
-        
-        $('#goto_analysis').click(function(){
-          $('#main_tabs a[href*=\"milestone-analysis\"]').tab('show');
-        });
-        
-        $('#goto_upload').click(function(){
-          $('#main_tabs a[href*=\"get-started\"]').tab('show');
-        });
-        
-        // Auto-hide notifications after delay
-        setTimeout(function() {
-          $('.alert-dismissible').fadeOut(1000);
-        }, 8000);
-        
-        // Refresh tooltips when content updates
-        $(document).on('shiny:value shiny:outputinvalidated', function(event) {
+        // Handle window resize
+        $window.on('resize.customSticky', function() {
+          // Reset all to static first
+          stickyElements.forEach(function(sticky) {
+            sticky.sidebar.css({
+              'position': 'static',
+              'top': 'auto',
+              'width': 'auto',
+              'z-index': 'auto'
+            }).removeClass('is-fixed');
+            sticky.isFixed = false;
+          });
+          
           setTimeout(function() {
-            $('[data-toggle=\"tooltip\"]').tooltip({
-              html: true,
-              delay: { show: 300, hide: 100 },
-              boundary: 'window'
+            // Recalculate positions
+            stickyElements.forEach(function(sticky) {
+              sticky.initialTop = sticky.sidebar.offset().top;
+              sticky.initialWidth = sticky.sidebar.outerWidth();
             });
+            updateStickyPositions();
           }, 100);
         });
         
-        // Loading state management for charts
-        $(document).on('shiny:outputinvalidated', function(event) {
-          if(event.target.id && (event.target.id.includes('chart') || event.target.id.includes('spider'))) {
-            $('#' + event.target.id).before('<div class=\"chart-loading text-center p-4\"><i class=\"fas fa-spinner fa-spin fa-2x text-primary\"></i><p class=\"text-muted mt-2\">Loading visualization...</p></div>');
-          }
+        // Initial position check
+        updateStickyPositions();
+      }
+      
+      // Initialize tooltips
+      function initTooltips() {
+        $('[data-toggle=\"tooltip\"]').tooltip({
+          html: true,
+          delay: { show: 300, hide: 100 },
+          container: 'body'
         });
-        
-        $(document).on('shiny:value', function(event) {
-          if(event.target.id && (event.target.id.includes('chart') || event.target.id.includes('spider'))) {
-            $('.chart-loading').remove();
-          }
-        });
+      }
+      
+      // Progressive disclosure
+      $('.show-advanced').on('click', function(e){
+        e.preventDefault();
+        $(this).closest('.card-body').find('.advanced-controls').slideToggle(300);
+        var icon = $(this).find('i');
+        if (icon.hasClass('fa-chevron-down')) {
+          icon.removeClass('fa-chevron-down').addClass('fa-chevron-up');
+        } else {
+          icon.removeClass('fa-chevron-up').addClass('fa-chevron-down');
+        }
       });
-    "))
+      
+      // Navigation helpers
+      $('#goto_overview').on('click', function(){
+        $('a[data-value=\"Program Overview\"]').click();
+        setTimeout(initScrollSticky, 500);
+      });
+      
+      $('#goto_analysis').on('click', function(){
+        $('a[data-value=\"Milestone Analysis\"]').click();
+        setTimeout(initScrollSticky, 500);
+      });
+      
+      // Initialize everything
+      initTooltips();
+      initScrollSticky();
+      
+      // Reinitialize on tab changes
+      $('a[data-toggle=\"tab\"]').on('shown.bs.tab', function() {
+        console.log('Tab changed - reinitializing sticky');
+        setTimeout(initScrollSticky, 300);
+      });
+      
+      // Reinitialize on Shiny updates
+      $(document).on('shiny:value shiny:outputinvalidated', function() {
+        setTimeout(function() {
+          initTooltips();
+          initScrollSticky();
+        }, 200);
+      });
+      
+      console.log('JavaScript sticky setup complete');
+      
+      // Test scroll in 3 seconds
+      setTimeout(function() {
+        console.log('Test scroll: Found', stickyElements.length, 'sticky elements');
+        console.log('Current scroll position:', $(window).scrollTop());
+      }, 3000);
+    });
+  "))
   ),
-  
   # Main container
   div(class = "main-container",
       
@@ -435,7 +499,7 @@ ui <- fluidPage(
                     fluidRow(
                       # Enhanced sidebar with progressive disclosure
                       column(3,
-                             div(class = "sidebar-card js-sticky-sidebar",
+                             div(class = "sidebar-card card js-sticky-sidebar",
                                  div(class = "card-header", 
                                      h6(icon("sliders-h"), "Analysis Settings",
                                         help_icon("Customize your program analysis"))),
@@ -646,7 +710,7 @@ ui <- fluidPage(
                     fluidRow(
                       # Enhanced sidebar
                       column(3,
-                             div(class = "sidebar-card js-sticky-sidebar",
+                             div(class = "sidebar-card card js-sticky-sidebar",
                                  div(class = "card-header", 
                                      h6(icon("sliders-h"), "Analysis Settings",
                                         help_icon("Configure milestone analysis parameters"))),

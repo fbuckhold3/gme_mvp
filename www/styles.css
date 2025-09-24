@@ -1,5 +1,5 @@
 /* =============================================================================
-   Clean Milestone App Styles
+   Enhanced Milestone App Styles with Working Sticky Sidebar
    ============================================================================= */
 
 /* Color Palette */
@@ -44,17 +44,129 @@
   margin-bottom: 1.5rem;
 }
 
-/* Sticky Sidebar */
+/* FIXED STICKY SIDEBAR - This is the key fix */
 .js-sticky-sidebar {
-  transition: all 0.3s ease;
+  position: sticky !important;
+  position: -webkit-sticky !important;
+  top: 20px !important;
+  align-self: flex-start;
+  z-index: 100;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  /* Ensure it doesn't get overridden by Bootstrap */
+  display: block !important;
 }
 
-.js-sticky-sidebar.stuck {
-  position: fixed;
-  top: 20px;
-  width: 300px;
-  z-index: 100;
+/* Force the parent containers to allow sticky positioning */
+.row {
+  display: flex !important;
+  flex-wrap: wrap;
 }
+
+/* Critical: Ensure Bootstrap columns work with flexbox and sticky */
+.row > [class*="col-"] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* Important for sticky to work properly */
+}
+
+/* Specific fix for Bootstrap's grid system interference */
+.col-3 .js-sticky-sidebar,
+.col-4 .js-sticky-sidebar {
+  position: sticky !important;
+  position: -webkit-sticky !important;
+}
+
+/* Fix for Shiny's tab content containers */
+.tab-content {
+  display: block !important;
+}
+
+.tab-pane {
+  display: block !important;
+}
+
+.tab-pane.active {
+  display: block !important;
+}
+
+/* Ensure the main content column grows to fill space */
+.col-9 {
+  flex: 1;
+  min-height: 100vh; /* This ensures there's enough content to scroll */
+}
+
+/* Scrollbar styling for the sticky sidebar */
+.js-sticky-sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.js-sticky-sidebar::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.js-sticky-sidebar::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.js-sticky-sidebar::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Alternative approach using JavaScript (add this to your UI head section) */
+/* You can also add this JavaScript to make it more robust: */
+
+/*
+$(document).ready(function() {
+  // Enhanced sticky sidebar with JavaScript fallback
+  function initStickyElements() {
+    $('.js-sticky-sidebar').each(function() {
+      var $sidebar = $(this);
+      var $parent = $sidebar.closest('.row');
+      var sidebarTop = $sidebar.offset().top - 20;
+      
+      $(window).scroll(function() {
+        var scrollTop = $(window).scrollTop();
+        var parentBottom = $parent.offset().top + $parent.outerHeight();
+        var sidebarHeight = $sidebar.outerHeight();
+        var windowHeight = $(window).height();
+        
+        if (scrollTop > sidebarTop) {
+          if (scrollTop + sidebarHeight + 40 < parentBottom) {
+            $sidebar.css({
+              'position': 'fixed',
+              'top': '20px',
+              'width': $sidebar.parent().width() + 'px'
+            });
+          } else {
+            $sidebar.css({
+              'position': 'absolute',
+              'top': (parentBottom - sidebarHeight - 40) + 'px',
+              'width': $sidebar.parent().width() + 'px'
+            });
+          }
+        } else {
+          $sidebar.css({
+            'position': 'relative',
+            'top': 'auto',
+            'width': 'auto'
+          });
+        }
+      });
+    });
+  }
+  
+  // Initialize after Shiny content loads
+  setTimeout(initStickyElements, 1000);
+  
+  // Reinitialize when tab changes
+  $('a[data-toggle="tab"]').on('shown.bs.tab', function() {
+    setTimeout(initStickyElements, 100);
+  });
+});
+*/
 
 /* Cards */
 .card {
@@ -229,14 +341,21 @@ h4, h5, h6 {
 @media (max-width: 768px) {
   .js-sticky-sidebar {
     position: static !important;
-    width: 100% !important;
-  }
-  
-  .js-sticky-sidebar.stuck {
-    position: static !important;
+    align-self: auto !important;
+    max-height: none !important;
+    margin-bottom: 2rem !important;
   }
   
   .sidebar-mobile {
     margin-bottom: 1rem;
+  }
+  
+  .row {
+    display: block !important;
+  }
+  
+  .row > [class*="col-"] {
+    display: block !important;
+    flex-direction: row;
   }
 }
