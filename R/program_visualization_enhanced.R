@@ -185,6 +185,8 @@ create_multi_level_spider_plot <- function(data, period_type = "recent_end",
       r = level_data$mean_score,
       theta = level_data$Sub_Competency,
       name = pgy_levels[i],
+      type = 'scatterpolar',  # ADD THIS
+      mode = 'lines+markers', # ADD THIS
       line = list(color = colors[((i-1) %% length(colors)) + 1], width = 3),
       marker = list(color = colors[((i-1) %% length(colors)) + 1], size = 8),
       fill = ifelse(i == 1, 'toself', 'none'),  # Only fill first trace to avoid overlap
@@ -208,6 +210,8 @@ create_multi_level_spider_plot <- function(data, period_type = "recent_end",
         r = program_means$overall_mean,
         theta = program_means$Sub_Competency,
         name = "Program Mean",
+        type = 'scatterpolar',  # ADD THIS
+        mode = 'lines+markers', # ADD THIS
         line = list(color = '#FF6B35', width = 4, dash = 'dot'),
         marker = list(color = '#FF6B35', size = 10, symbol = 'diamond'),
         hovertemplate = paste0(

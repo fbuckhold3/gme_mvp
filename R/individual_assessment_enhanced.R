@@ -14,39 +14,60 @@ create_individual_assessment_ui <- function() {
             conditionalPanel(
               condition = "output.data_loaded",
               
+              # Enhanced tab description
               fluidRow(
                 column(12,
                        div(class = "alert alert-info mb-4",
-                           h6("Individual Assessment", style = "margin-bottom: 10px; color: #2c3e50;"),
-                           p("Focus on individual resident performance with detailed milestone tracking and comparative analysis. Select a resident to view their progression over time, compare their performance to program averages, and identify specific areas for development or recognition.",
+                           section_header("Individual Assessment", 
+                                          "Focus on individual resident performance and progression",
+                                          "user-check"),
+                           p(HTML(paste("Focus on individual resident performance with detailed", 
+                                        create_tooltip("milestone tracking", 
+                                                       "Track individual resident progress across<br/>all milestone evaluations over time"),
+                                        "and comparative analysis. Select a resident to view their progression over time, compare their performance to",
+                                        create_tooltip("program averages", 
+                                                       "See how individual performance compares<br/>to program-wide averages for context"),
+                                        "and identify specific areas for development or recognition.")),
                              style = "margin-bottom: 0; font-size: 0.95em;")
                        )
                 )
               ),
               
-              # Control Panel
+              # Control Panel and Summary Cards Row
               fluidRow(
                 column(3,
-                       div(class = "card border-primary",
+                       div(class = "content-card card border-primary h-100",
                            div(class = "card-header bg-primary text-white",
-                               h6(icon("sliders-h"), " Controls", class = "mb-0")),
+                               h6(icon("sliders-h"), " Controls", 
+                                  class = "mb-0",
+                                  help_icon("Select resident and evaluation period"))
+                           ),
                            div(class = "card-body",
                                
                                # Resident Selection
-                               selectInput("individual_resident", 
-                                           "Select Resident:",
-                                           choices = NULL,
-                                           width = "100%"),
+                               div(class = "form-group",
+                                   tags$label(class = "form-label",
+                                              "Select Resident:",
+                                              help_icon("Choose individual resident for analysis")),
+                                   selectInput("individual_resident", "",
+                                               choices = NULL,
+                                               width = "100%")
+                               ),
                                
                                # Evaluation Level/Period Selection
-                               selectInput("individual_level", 
-                                           "Evaluation Level:",
-                                           choices = NULL,
-                                           width = "100%"),
+                               div(class = "form-group",
+                                   tags$label(class = "form-label",
+                                              create_tooltip("Evaluation Level", 
+                                                             "Choose specific evaluation period<br/>or view all evaluations combined"),
+                                              help_icon("Select evaluation timeframe")),
+                                   selectInput("individual_level", "",
+                                               choices = NULL,
+                                               width = "100%")
+                               ),
                                
                                # Additional Info Display
-                               div(id = "resident_info_box",
-                                   style = "background-color: #f8f9fa; padding: 10px; border-radius: 5px; margin-top: 10px;",
+                               div(class = "alert alert-light mt-3",
+                                   style = "border-left: 4px solid #007bff; padding: 10px;",
                                    uiOutput("resident_info_display")
                                )
                            )
@@ -57,38 +78,54 @@ create_individual_assessment_ui <- function() {
                 column(9,
                        fluidRow(
                          column(3,
-                                div(class = "card border-info text-center",
-                                    div(class = "card-body",
-                                        h4(textOutput("individual_total_evaluations"), 
-                                           class = "text-info mb-0"),
-                                        tags$small("Total Evaluations", class = "text-muted")
+                                div(class = "content-card card border-info text-center h-100",
+                                    div(class = "card-body d-flex flex-column justify-content-center",
+                                        div(class = "metric-value",
+                                            textOutput("individual_total_evaluations"),
+                                            style = "font-size: 2rem; font-weight: bold; color: #17a2b8;"
+                                        ),
+                                        tags$small("Total Evaluations", 
+                                                   class = "text-muted",
+                                                   help_icon("Number of milestone evaluations for this resident"))
                                     )
                                 )
                          ),
                          column(3,
-                                div(class = "card border-success text-center",
-                                    div(class = "card-body",
-                                        h4(textOutput("individual_avg_score"), 
-                                           class = "text-success mb-0"),
-                                        tags$small("Average Score", class = "text-muted")
+                                div(class = "content-card card border-success text-center h-100",
+                                    div(class = "card-body d-flex flex-column justify-content-center",
+                                        div(class = "metric-value",
+                                            textOutput("individual_avg_score"),
+                                            style = "font-size: 2rem; font-weight: bold; color: #28a745;"
+                                        ),
+                                        tags$small("Average Score", 
+                                                   class = "text-muted",
+                                                   help_icon("Mean milestone score for selected criteria"))
                                     )
                                 )
                          ),
                          column(3,
-                                div(class = "card border-warning text-center",
-                                    div(class = "card-body",
-                                        h4(textOutput("program_avg_score"), 
-                                           class = "text-warning mb-0"),
-                                        tags$small("Program Average", class = "text-muted")
+                                div(class = "content-card card border-warning text-center h-100",
+                                    div(class = "card-body d-flex flex-column justify-content-center",
+                                        div(class = "metric-value",
+                                            textOutput("program_avg_score"),
+                                            style = "font-size: 2rem; font-weight: bold; color: #ffc107;"
+                                        ),
+                                        tags$small("Program Average", 
+                                                   class = "text-muted",
+                                                   help_icon("Program-wide average for comparison"))
                                     )
                                 )
                          ),
                          column(3,
-                                div(class = "card border-secondary text-center",
-                                    div(class = "card-body",
-                                        h4(textOutput("individual_percentile"), 
-                                           class = "text-secondary mb-0"),
-                                        tags$small("Program Percentile", class = "text-muted")
+                                div(class = "content-card card border-secondary text-center h-100",
+                                    div(class = "card-body d-flex flex-column justify-content-center",
+                                        div(class = "metric-value",
+                                            textOutput("individual_percentile"),
+                                            style = "font-size: 2rem; font-weight: bold; color: #6c757d;"
+                                        ),
+                                        tags$small("Program Percentile", 
+                                                   class = "text-muted",
+                                                   help_icon("Percentile rank within program<br/>Higher values indicate above-average performance"))
                                     )
                                 )
                          )
@@ -102,10 +139,13 @@ create_individual_assessment_ui <- function() {
               fluidRow(
                 # Spider Plot
                 column(6,
-                       div(class = "card h-100",
-                           div(class = "card-header bg-light",
-                               h5(icon("chart-area"), "Performance Profile vs Program Mean", class = "mb-0")),
-                           div(class = "card-body",
+                       div(class = "content-card card h-100",
+                           div(class = "card-header", 
+                               h6(icon("chart-area"), 
+                                  "Performance Profile vs Program Mean",
+                                  help_icon("Radar chart comparing individual performance<br/>to program averages across all sub-competencies<br/>Points further from center indicate higher scores"))
+                           ),
+                           div(class = "card-body position-relative",
                                plotlyOutput("individual_spider_enhanced", height = "550px")
                            )
                        )
@@ -113,10 +153,13 @@ create_individual_assessment_ui <- function() {
                 
                 # Trend Chart
                 column(6,
-                       div(class = "card h-100",
-                           div(class = "card-header bg-light",
-                               h5(icon("chart-line"), "Progression Over Time vs Program", class = "mb-0")),
-                           div(class = "card-body",
+                       div(class = "content-card card h-100",
+                           div(class = "card-header", 
+                               h6(icon("chart-line"), 
+                                  "Progression Over Time vs Program",
+                                  help_icon("Shows individual progression through training<br/>compared to program averages over time<br/>Tracks development across evaluation periods"))
+                           ),
+                           div(class = "card-body position-relative",
                                plotlyOutput("individual_trend_enhanced", height = "550px")
                            )
                        )
@@ -128,10 +171,18 @@ create_individual_assessment_ui <- function() {
               # Detailed Performance Table
               fluidRow(
                 column(12,
-                       div(class = "card",
-                           div(class = "card-header bg-light",
-                               h5(icon("table"), "Detailed Performance Breakdown", class = "mb-0")),
+                       div(class = "content-card card",
+                           div(class = "card-header", 
+                               h6(icon("table"), 
+                                  "Detailed Performance Breakdown",
+                                  help_icon("Comprehensive table showing individual performance<br/>compared to program benchmarks by sub-competency<br/>includes percentile estimates and performance levels"))
+                           ),
                            div(class = "card-body",
+                               div(class = "alert alert-light mb-3",
+                                   style = "border-left: 4px solid #28a745;",
+                                   icon("info-circle"), " ",
+                                   "This table shows detailed performance metrics for the selected resident compared to program averages. Green values indicate above-average performance, red indicates below-average."
+                               ),
                                DT::dataTableOutput("individual_detail_table")
                            )
                        )
@@ -139,11 +190,18 @@ create_individual_assessment_ui <- function() {
               )
             ),
             
-            # Show message when no data loaded
+            # Enhanced no-data message
             conditionalPanel(
               condition = "!output.data_loaded",
               div(class = "alert alert-info text-center",
-                  icon("info-circle"), " Please upload and process milestone data first.")
+                  style = "margin: 50px 0; padding: 40px;",
+                  icon("info-circle", class = "fa-2x mb-3"),
+                  h5("Load Your Data First"),
+                  p("Please upload milestone data or try the demo from the Get Started tab to begin individual assessment."),
+                  actionButton("goto_upload", 
+                               HTML('<i class="fas fa-upload"></i> Go to Get Started'),
+                               class = "btn btn-primary")
+              )
             )
   )
 }
