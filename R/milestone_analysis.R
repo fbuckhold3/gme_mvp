@@ -1026,6 +1026,10 @@ create_cohort_trend_analysis <- function(data, selected_sub_competency, selected
     }
   }
   
+  # Determine legend orientation based on number of items
+  num_legend_items <- 1 + length(selected_cohorts)  # Program average + cohorts
+  use_vertical_legend <- num_legend_items > 4  # Switch to vertical if more than 4 items
+  
   fig <- fig %>%
     layout(
       title = list(
@@ -1036,19 +1040,58 @@ create_cohort_trend_analysis <- function(data, selected_sub_competency, selected
         title = "Training Period & Level",
         tickangle = -45,
         categoryorder = "array",
-        categoryarray = ordered_periods
+        categoryarray = ordered_periods,
+        titlestandoff = 25  # Increased space for rotated labels
       ),
       yaxis = list(
         title = "Mean Milestone Score",
         range = c(1, 9)
       ),
       hovermode = 'closest',
-      legend = list(
-        orientation = "h",
-        x = 0.5,
-        xanchor = 'center',
-        y = -0.3
-      )
+      legend = if (use_vertical_legend) {
+        # Vertical legend for many items
+        list(
+          orientation = "v",
+          x = 1.02,
+          xanchor = 'left',
+          y = 1,
+          yanchor = 'top',
+          bgcolor = 'rgba(255,255,255,0.95)',
+          bordercolor = 'rgba(0,0,0,0.2)',
+          borderwidth = 1,
+          font = list(size = 10)
+        )
+      } else {
+        # Horizontal legend for few items
+        list(
+          orientation = "h",
+          x = 0.5,
+          xanchor = 'center',
+          y = -0.5,  # Even further down
+          yanchor = 'top',
+          bgcolor = 'rgba(255,255,255,0.95)',
+          bordercolor = 'rgba(0,0,0,0.2)',
+          borderwidth = 1,
+          font = list(size = 10)
+        )
+      },
+      margin = if (use_vertical_legend) {
+        # More right margin for vertical legend
+        list(
+          t = 60,
+          b = 80,
+          l = 80,
+          r = 180  # Extra space for vertical legend
+        )
+      } else {
+        # More bottom margin for horizontal legend
+        list(
+          t = 60,
+          b = 150,  # Even more space for horizontal legend
+          l = 80,
+          r = 40
+        )
+      }
     )
   
   return(fig)

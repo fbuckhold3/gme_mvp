@@ -80,16 +80,21 @@ server <- function(input, output, session) {
       values$current_operation <- "Updating interface controls"
       
       # Update specific period choices
-      periods <- sort(unique(data$evaluations$Period))
+      periods <- sort(unique(data$evaluations$Period), decreasing = TRUE)  # CHANGED: Add decreasing = TRUE
       updateSelectInput(session, "specific_period", 
                         choices = setNames(periods, periods),
-                        selected = periods[length(periods)])
+                        selected = periods[1])  # CHANGED: Select first (most recent) instead of last
       
       # Update milestone period choices with enhanced options
       milestone_period_choices <- get_all_period_choices(data)
+      
+      # ADDED: Smart default selection for most recent Year-End
+      most_recent_yearend <- periods[grepl("Year-End|End-Year", periods, ignore.case = TRUE)][1]
+      default_milestone_period <- if(!is.na(most_recent_yearend)) most_recent_yearend else "all"
+      
       updateSelectInput(session, "milestone_period", 
                         choices = milestone_period_choices,
-                        selected = "all")
+                        selected = default_milestone_period)  # CHANGED: Use smart default instead of "all"
       
       # Update competency choices for other components
       competencies <- unique(data$evaluations$Competency)
@@ -294,16 +299,20 @@ server <- function(input, output, session) {
       })
       
       # Update period choices for analysis
-      periods <- sort(unique(demo_processed$Period))
+      periods <- sort(unique(demo_processed$Period), decreasing = TRUE)  # CHANGED: Add decreasing = TRUE
       updateSelectInput(session, "specific_period", 
                         choices = setNames(periods, periods),
-                        selected = periods[length(periods)])
+                        selected = periods[1])  # CHANGED: Select first (most recent) instead of last
       
-      # Update milestone period choices
       milestone_period_choices <- get_all_period_choices(list(evaluations = demo_processed))
+      
+      # ADDED: Smart default for demo data too
+      most_recent_yearend <- periods[grepl("Year-End|End-Year", periods, ignore.case = TRUE)][1]
+      default_milestone_period <- if(!is.na(most_recent_yearend)) most_recent_yearend else "all"
+      
       updateSelectInput(session, "milestone_period", 
                         choices = milestone_period_choices,
-                        selected = "all")
+                        selected = default_milestone_period)  # CHANGED: Use smart default instead of "all"
       
       # Update competency choices
       competencies <- unique(demo_processed$Competency)

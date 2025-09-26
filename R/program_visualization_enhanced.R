@@ -19,7 +19,7 @@ if (!require(stringr)) library(stringr)
 #' @return Character vector of performance categories
 get_performance_category <- function(scores) {
   case_when(
-    scores < 3 ~ "Beginner",
+    scores < 3 ~ "Novice",
     scores >= 3 & scores < 5 ~ "Advanced Beginner", 
     scores >= 5 & scores < 7 ~ "Competent",
     scores >= 7 & scores < 9 ~ "Proficient",
@@ -36,8 +36,8 @@ get_performance_category <- function(scores) {
 #' @return Character vector with contextual descriptions
 get_performance_context <- function(scores) {
   case_when(
-    scores < 2 ~ "Low Beginner",
-    scores >= 2 & scores < 3 ~ "High Beginner",
+    scores < 2 ~ "Novice",
+    scores >= 2 & scores < 3 ~ "High Novice",
     scores >= 3 & scores < 4 ~ "Low Advanced Beginner", 
     scores >= 4 & scores < 5 ~ "High Advanced Beginner",
     scores >= 5 & scores < 6 ~ "Low Competent",
@@ -406,7 +406,7 @@ create_performance_heatmap <- function(data, metric = "median", sortable = TRUE)
     heatmap_data <- period_means %>%
       mutate(
         value = case_when(
-          performance_category == "Beginner" ~ 1,
+          performance_category == "Novice" ~ 1,
           performance_category == "Advanced Beginner" ~ 2,
           performance_category == "Competent" ~ 3,
           performance_category == "Proficient" ~ 4,
@@ -1135,7 +1135,7 @@ create_multi_level_spider_plot <- function(data, period_type = "recent_end",
         range = c(0, 9),
         tickmode = 'array',
         tickvals = c(1, 3, 5, 7, 9),
-        ticktext = c('<b>1</b><br>Beginner', '<b>3</b><br>Low Advanced Beginner', 
+        ticktext = c('<b>1</b><br>Novice', '<b>3</b><br>Low Advanced Beginner', 
                      '<b>5</b><br>Competent', '<b>7</b><br>Proficient', '<b>9</b><br>Expert'),
         tickfont = list(size = 12, color = "#34495e", family = "Arial, sans-serif"),
         gridcolor = 'rgba(52, 73, 94, 0.15)',

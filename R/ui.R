@@ -122,183 +122,202 @@ ui <- fluidPage(
     }
   ")),
     
-    # Pure JavaScript scroll handler
+    # REFINED STICKY SIDEBAR - Replace your JavaScript section with this:
+    
     tags$script(HTML("
-    $(document).ready(function(){
-      console.log('JavaScript scroll sticky implementation');
+  $(document).ready(function(){
+    console.log('Refined sticky sidebar implementation');
+    
+    var stickyElements = [];
+    
+    function initScrollSticky() {
+      // Clear previous sticky elements
+      stickyElements = [];
       
-      var stickyElements = [];
-      
-      function initScrollSticky() {
-        // Clear previous sticky elements
-        stickyElements = [];
+      $('.js-sticky-sidebar').each(function() {
+        var $sidebar = $(this);
+        var $container = $sidebar.closest('.row');
+        var $column = $sidebar.parent();
         
-        $('.js-sticky-sidebar').each(function() {
-          var $sidebar = $(this);
-          var $container = $sidebar.closest('.row');
-          var $column = $sidebar.parent();
-          
-          // Store initial values
-          var stickyData = {
-            sidebar: $sidebar,
-            container: $container,
-            column: $column,
-            initialTop: $sidebar.offset().top,
-            initialWidth: $sidebar.outerWidth(),
-            isFixed: false
-          };
-          
-          stickyElements.push(stickyData);
-          
-          console.log('Registered sticky element:', {
-            initialTop: stickyData.initialTop,
-            initialWidth: stickyData.initialWidth,
-            containerHeight: $container.outerHeight()
-          });
-        });
+        // Store initial values - measure when sidebar is in natural position
+        var stickyData = {
+          sidebar: $sidebar,
+          container: $container,
+          column: $column,
+          initialTop: null, // Will be calculated
+          initialWidth: $sidebar.outerWidth(),
+          isFixed: false,
+          naturalOffsetTop: null
+        };
         
-        // Set up scroll handler
-        setupScrollHandler();
-      }
-      
-      function setupScrollHandler() {
-        var $window = $(window);
-        var stickyOffset = 20;
+        // Ensure sidebar is in natural position for measurement
+        $sidebar.css({
+          'position': 'static',
+          'top': 'auto',
+          'width': 'auto'
+        }).removeClass('is-fixed');
         
-        // Remove previous scroll handlers
-        $window.off('scroll.customSticky resize.customSticky');
-        
-        function updateStickyPositions() {
-          var scrollTop = $window.scrollTop();
-          
-          stickyElements.forEach(function(sticky, index) {
-            var shouldBeFixed = scrollTop + stickyOffset > sticky.initialTop;
-            var containerBottom = sticky.container.offset().top + sticky.container.outerHeight();
-            var sidebarHeight = sticky.sidebar.outerHeight();
-            var fitsInViewport = sidebarHeight + stickyOffset < $window.height();
-            var withinContainer = scrollTop + sidebarHeight + stickyOffset < containerBottom;
-            
-            if (shouldBeFixed && fitsInViewport && withinContainer) {
-              // Make it fixed
-              if (!sticky.isFixed) {
-                console.log('Making sidebar', index, 'fixed');
-                sticky.sidebar.css({
-                  'position': 'fixed',
-                  'top': stickyOffset + 'px',
-                  'width': sticky.column.width() + 'px',
-                  'z-index': '1000'
-                }).addClass('is-fixed');
-                sticky.isFixed = true;
-              }
-            } else {
-              // Make it static
-              if (sticky.isFixed) {
-                console.log('Making sidebar', index, 'static');
-                sticky.sidebar.css({
-                  'position': 'static',
-                  'top': 'auto',
-                  'width': 'auto',
-                  'z-index': 'auto'
-                }).removeClass('is-fixed');
-                sticky.isFixed = false;
-              }
-            }
-          });
-        }
-        
-        // Throttled scroll handler for better performance
-        var scrollTimeout;
-        $window.on('scroll.customSticky', function() {
-          if (scrollTimeout) clearTimeout(scrollTimeout);
-          scrollTimeout = setTimeout(updateStickyPositions, 16); // ~60fps
-        });
-        
-        // Handle window resize
-        $window.on('resize.customSticky', function() {
-          // Reset all to static first
-          stickyElements.forEach(function(sticky) {
-            sticky.sidebar.css({
-              'position': 'static',
-              'top': 'auto',
-              'width': 'auto',
-              'z-index': 'auto'
-            }).removeClass('is-fixed');
-            sticky.isFixed = false;
-          });
-          
-          setTimeout(function() {
-            // Recalculate positions
-            stickyElements.forEach(function(sticky) {
-              sticky.initialTop = sticky.sidebar.offset().top;
-              sticky.initialWidth = sticky.sidebar.outerWidth();
-            });
-            updateStickyPositions();
-          }, 100);
-        });
-        
-        // Initial position check
-        updateStickyPositions();
-      }
-      
-      // Initialize tooltips
-      function initTooltips() {
-        $('[data-toggle=\"tooltip\"]').tooltip({
-          html: true,
-          delay: { show: 300, hide: 100 },
-          container: 'body'
-        });
-      }
-      
-      // Progressive disclosure
-      $('.show-advanced').on('click', function(e){
-        e.preventDefault();
-        $(this).closest('.card-body').find('.advanced-controls').slideToggle(300);
-        var icon = $(this).find('i');
-        if (icon.hasClass('fa-chevron-down')) {
-          icon.removeClass('fa-chevron-down').addClass('fa-chevron-up');
-        } else {
-          icon.removeClass('fa-chevron-up').addClass('fa-chevron-down');
-        }
-      });
-      
-      // Navigation helpers
-      $('#goto_overview').on('click', function(){
-        $('a[data-value=\"Program Overview\"]').click();
-        setTimeout(initScrollSticky, 500);
-      });
-      
-      $('#goto_analysis').on('click', function(){
-        $('a[data-value=\"Milestone Analysis\"]').click();
-        setTimeout(initScrollSticky, 500);
-      });
-      
-      // Initialize everything
-      initTooltips();
-      initScrollSticky();
-      
-      // Reinitialize on tab changes
-      $('a[data-toggle=\"tab\"]').on('shown.bs.tab', function() {
-        console.log('Tab changed - reinitializing sticky');
-        setTimeout(initScrollSticky, 300);
-      });
-      
-      // Reinitialize on Shiny updates
-      $(document).on('shiny:value shiny:outputinvalidated', function() {
+        // Measure natural position after a brief delay
         setTimeout(function() {
-          initTooltips();
-          initScrollSticky();
-        }, 200);
+          stickyData.naturalOffsetTop = $sidebar.offset().top;
+          stickyData.initialTop = stickyData.naturalOffsetTop;
+          console.log('Measured natural top position:', stickyData.naturalOffsetTop);
+        }, 50);
+        
+        stickyElements.push(stickyData);
       });
       
-      console.log('JavaScript sticky setup complete');
+      // Set up scroll handler after measurements
+      setTimeout(setupScrollHandler, 100);
+    }
+    
+    function setupScrollHandler() {
+      var $window = $(window);
+      var stickyOffset = 20;
+      var releaseThreshold = 10; // Pixels from top to release sidebar
       
-      // Test scroll in 3 seconds
-      setTimeout(function() {
-        console.log('Test scroll: Found', stickyElements.length, 'sticky elements');
-        console.log('Current scroll position:', $(window).scrollTop());
-      }, 3000);
+      // Remove previous scroll handlers
+      $window.off('scroll.customSticky resize.customSticky');
+      
+      function updateStickyPositions() {
+        var scrollTop = $window.scrollTop();
+        
+        stickyElements.forEach(function(sticky, index) {
+          if (!sticky.naturalOffsetTop) return; // Skip if not measured yet
+          
+          var triggerPoint = sticky.naturalOffsetTop - stickyOffset;
+          var shouldBeFixed = scrollTop > triggerPoint;
+          var containerBottom = sticky.container.offset().top + sticky.container.outerHeight();
+          var sidebarHeight = sticky.sidebar.outerHeight();
+          var fitsInViewport = sidebarHeight + stickyOffset * 2 < $window.height();
+          var withinContainer = scrollTop + sidebarHeight + stickyOffset < containerBottom;
+          
+          // Release if we're very close to the top
+          var nearTop = scrollTop <= releaseThreshold;
+          
+          if (shouldBeFixed && fitsInViewport && withinContainer && !nearTop) {
+            // Make it fixed
+            if (!sticky.isFixed) {
+              console.log('Making sidebar', index, 'fixed at scroll:', scrollTop);
+              sticky.sidebar.css({
+                'position': 'fixed',
+                'top': stickyOffset + 'px',
+                'width': sticky.column.width() + 'px',
+                'z-index': '1000'
+              }).addClass('is-fixed');
+              sticky.isFixed = true;
+            }
+          } else {
+            // Make it static
+            if (sticky.isFixed) {
+              console.log('Making sidebar', index, 'static at scroll:', scrollTop);
+              sticky.sidebar.css({
+                'position': 'static',
+                'top': 'auto',
+                'width': 'auto',
+                'z-index': 'auto'
+              }).removeClass('is-fixed');
+              sticky.isFixed = false;
+            }
+          }
+        });
+      }
+      
+      // Smooth scroll handler with requestAnimationFrame for better performance
+      var isScrolling = false;
+      function smoothScrollHandler() {
+        if (!isScrolling) {
+          requestAnimationFrame(function() {
+            updateStickyPositions();
+            isScrolling = false;
+          });
+          isScrolling = true;
+        }
+      }
+      
+      $window.on('scroll.customSticky', smoothScrollHandler);
+      
+      // Handle window resize
+      $window.on('resize.customSticky', function() {
+        // Reset all to static first
+        stickyElements.forEach(function(sticky) {
+          sticky.sidebar.css({
+            'position': 'static',
+            'top': 'auto',
+            'width': 'auto',
+            'z-index': 'auto'
+          }).removeClass('is-fixed');
+          sticky.isFixed = false;
+        });
+        
+        setTimeout(function() {
+          // Recalculate positions
+          stickyElements.forEach(function(sticky) {
+            sticky.naturalOffsetTop = sticky.sidebar.offset().top;
+            sticky.initialTop = sticky.naturalOffsetTop;
+            sticky.initialWidth = sticky.sidebar.outerWidth();
+          });
+          updateStickyPositions();
+        }, 100);
+      });
+      
+      // Initial position check
+      setTimeout(updateStickyPositions, 50);
+    }
+    
+    // Initialize tooltips
+    function initTooltips() {
+      $('[data-toggle=\"tooltip\"]').tooltip({
+        html: true,
+        delay: { show: 300, hide: 100 },
+        container: 'body'
+      });
+    }
+    
+    // Progressive disclosure
+    $('.show-advanced').on('click', function(e){
+      e.preventDefault();
+      $(this).closest('.card-body').find('.advanced-controls').slideToggle(300);
+      var icon = $(this).find('i');
+      if (icon.hasClass('fa-chevron-down')) {
+        icon.removeClass('fa-chevron-down').addClass('fa-chevron-up');
+      } else {
+        icon.removeClass('fa-chevron-up').addClass('fa-chevron-down');
+      }
     });
-  "))
+    
+    // Navigation helpers
+    $('#goto_overview').on('click', function(){
+      $('a[data-value=\"Program Overview\"]').click();
+      setTimeout(initScrollSticky, 500);
+    });
+    
+    $('#goto_analysis').on('click', function(){
+      $('a[data-value=\"Milestone Analysis\"]').click();
+      setTimeout(initScrollSticky, 500);
+    });
+    
+    // Initialize everything
+    initTooltips();
+    initScrollSticky();
+    
+    // Reinitialize on tab changes
+    $('a[data-toggle=\"tab\"]').on('shown.bs.tab', function() {
+      console.log('Tab changed - reinitializing sticky');
+      setTimeout(initScrollSticky, 300);
+    });
+    
+    // Reinitialize on Shiny updates
+    $(document).on('shiny:value shiny:outputinvalidated', function() {
+      setTimeout(function() {
+        initTooltips();
+        initScrollSticky();
+      }, 200);
+    });
+    
+    console.log('Refined sticky setup complete');
+  });
+"))
   ),
   # Main container
   div(class = "main-container",
@@ -605,39 +624,43 @@ ui <- fluidPage(
                                  uiOutput("period_display_info")
                              ),
                              
-                             # Performance insights with enhanced tooltips
+                             # Performance insights - CHANGED: Now stacked instead of side-by-side
                              fluidRow(
-                               column(6,
-                                      div(class = "content-card card h-100",
+                               column(9, offset = 2,  # Centers the content and reduces width
+                                      div(class = "content-card card",
                                           div(class = "card-header", 
                                               h6(icon("exclamation-triangle", style = "color: #fd7e14;"), 
                                                  " Areas for Improvement",
                                                  help_icon("Sub-competencies with lowest average scores<br/>requiring focused attention and development"))
                                           ),
-                                          div(class = "card-body",
+                                          div(class = "card-body compact-table-body",
                                               uiOutput("improvement_description"),
                                               DT::dataTableOutput("improvement_areas")
                                           )
                                       )
-                               ),
-                               column(6,
-                                      div(class = "content-card card h-100",
+                               )
+                             ),
+                             
+                             fluidRow(
+                               column(9, offset = 2,  # Centers the content and reduces width
+                                      div(class = "content-card card",
                                           div(class = "card-header", 
                                               h6(icon("star", style = "color: #28a745;"), 
                                                  " Areas of Strength",
                                                  help_icon("Sub-competencies with highest average scores<br/>representing program excellence"))
                                           ),
-                                          div(class = "card-body",
+                                          div(class = "card-body compact-table-body",
                                               uiOutput("strength_description"),
                                               DT::dataTableOutput("strength_areas")
                                           )
                                       )
                                )
                              ),
+                          
                              
                              br(),
                              
-                             # Enhanced spider plot
+                             # Enhanced spider plot - now takes up more space without the milestone reference table
                              div(class = "content-card card",
                                  div(class = "card-header", 
                                      h6(icon("chart-area"), 
@@ -645,21 +668,12 @@ ui <- fluidPage(
                                         help_icon("Radar chart showing mean scores across all sub-competencies<br/>Higher values (toward edge) indicate better performance<br/>Each point represents the average milestone score for that competency"))
                                  ),
                                  div(class = "card-body position-relative",
-                                     plotlyOutput("program_spider", height = "600px")
-                                 )
-                             ),
-                             
-                             # Enhanced milestone reference
-                             div(class = "content-card card",
-                                 div(class = "card-header", 
-                                     h6(icon("list-alt"), 
-                                        "Milestone Reference Guide",
-                                        help_icon("Complete list of milestone codes and descriptions<br/>used in your program's evaluations"))
-                                 ),
-                                 div(class = "card-body",
-                                     DT::dataTableOutput("milestone_reference_table")
+                                     plotlyOutput("program_spider", height = "700px")  # Increased height since milestone table is removed
                                  )
                              )
+                             
+                             # REMOVED: Milestone reference table section
+                             # This was redundant as mentioned - users can find this in the Data Overview tab
                       )
                     )
                   ),
@@ -928,7 +942,7 @@ ui <- fluidPage(
         # ===================================================================
         # DATA OVERVIEW TAB - ENHANCED
         # ===================================================================
-        nav_panel("Data Overview",
+        nav_panel("Index",
                   icon = icon("table"),
                   
                   conditionalPanel(
@@ -938,7 +952,7 @@ ui <- fluidPage(
                     fluidRow(
                       column(12,
                              div(class = "alert alert-info mb-4",
-                                 section_header("Data Overview", 
+                                 section_header("Index", 
                                                 "Review data structure and milestone definitions",
                                                 "table"),
                                  p(HTML(paste("Review your uploaded milestone data structure and definitions. This section displays the", 

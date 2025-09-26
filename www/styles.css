@@ -359,3 +359,132 @@ h4, h5, h6 {
     flex-direction: row;
   }
 }
+
+/* Smooth transitions for the sticky sidebar */
+.js-sticky-sidebar {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  z-index: 1000;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  
+  /* Smooth transition when switching between fixed and static */
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Enhanced styling when sidebar is fixed */
+.js-sticky-sidebar.is-fixed {
+  position: fixed !important;
+  top: 20px !important;
+  box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+  border-color: #3498DB;
+}
+
+/* Add subtle animation on content cards to make scrolling feel smoother */
+.content-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  margin-bottom: 1.5rem;
+  min-height: 500px;
+  padding: 20px;
+  background: white;
+  transition: transform 0.2s ease;
+}
+
+.content-card:hover {
+  transform: translateY(-1px);
+}
+
+/* Smooth scrollbar styling for the sticky sidebar */
+.js-sticky-sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.js-sticky-sidebar::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.05);
+  border-radius: 3px;
+}
+
+.js-sticky-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.2);
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+.js-sticky-sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0,0,0,0.4);
+}
+
+/* Compact table styling for improvement and strength areas */
+#improvement_areas,
+#strength_areas {
+  font-size: 0.9rem;
+}
+
+#improvement_areas table,
+#strength_areas table {
+  margin-bottom: 0 !important;
+  width: 100% !important;
+}
+
+/* Reduce cell padding for more compact appearance */
+#improvement_areas td,
+#improvement_areas th,
+#strength_areas td,
+#strength_areas th {
+  padding: 8px 12px !important;
+  vertical-align: middle !important;
+}
+
+/* Make the first column (milestone description) take up more space */
+#improvement_areas td:first-child,
+#improvement_areas th:first-child,
+#strength_areas td:first-child,
+#strength_areas th:first-child {
+  width: 50% !important;
+  max-width: 300px !important;
+}
+
+/* Center align numeric columns */
+#improvement_areas td:nth-child(2),
+#improvement_areas td:nth-child(3),
+#improvement_areas td:nth-child(5),
+#strength_areas td:nth-child(2),
+#strength_areas td:nth-child(3),
+#strength_areas td:nth-child(5) {
+  text-align: center !important;
+  width: 12% !important;
+}
+
+/* Performance context column */
+#improvement_areas td:nth-child(4),
+#strength_areas td:nth-child(4) {
+  width: 20% !important;
+  text-align: center !important;
+}
+
+/* Remove extra spacing from DataTables wrapper */
+#improvement_areas_wrapper,
+#strength_areas_wrapper {
+  margin-top: 0 !important;
+}
+
+#improvement_areas_wrapper .dataTables_info,
+#improvement_areas_wrapper .dataTables_paginate,
+#strength_areas_wrapper .dataTables_info,
+#strength_areas_wrapper .dataTables_paginate {
+  margin-top: 5px !important;
+  font-size: 0.85rem !important;
+}
+
+/* Adjust card body padding for tables */
+.content-card .card-body {
+  padding: 15px !important;
+}
+
+/* Add some visual separation between the stacked tables */
+.content-card + .content-card {
+  margin-top: 20px;
+}

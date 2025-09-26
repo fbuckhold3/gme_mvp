@@ -292,3 +292,38 @@ get_milestone_text <- function(question_key, milestone_definitions) {
     return("Unknown milestone")
   }
 }
+
+
+#' Get All Available Periods for Selection with Smart Ordering
+#'
+#' @param data Processed data from load_milestone_csv_data()
+#' @return Named list of period choices ordered by recency
+get_all_period_choices <- function(data) {
+  
+  # Get all unique periods and sort by recency (most recent first)
+  all_periods <- sort(unique(data$evaluations$Period), decreasing = TRUE)
+  
+  # Separate Year-End and Mid-Year periods
+  yearend_periods <- all_periods[grepl("Year-End|End-Year", all_periods, ignore.case = TRUE)]
+  midyear_periods <- all_periods[grepl("Mid-Year", all_periods, ignore.case = TRUE)]
+  
+  # Create choices list starting with general options
+  choices <- list(
+    "All Periods" = "all",
+    "Latest Year-End" = "latest_year_end"
+  )
+  
+  # Add individual Year-End periods (most recent first)
+  if (length(yearend_periods) > 0) {
+    yearend_choices <- setNames(yearend_periods, paste0("Year-End: ", yearend_periods))
+    choices <- c(choices, yearend_choices)
+  }
+  
+  # Add Mid-Year periods (most recent first)  
+  if (length(midyear_periods) > 0) {
+    midyear_choices <- setNames(midyear_periods, paste0("Mid-Year: ", midyear_periods))
+    choices <- c(choices, midyear_choices)
+  }
+  
+  return(choices)
+}
